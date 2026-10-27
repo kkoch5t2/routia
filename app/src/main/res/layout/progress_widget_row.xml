@@ -1,0 +1,5 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/progress_row_root" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingBottom="8dp">
+    <TextView android:id="@+id/progress_goal" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="18sp" android:textStyle="bold" android:textColor="#203C32" android:maxLines="2" android:ellipsize="end"/>
+    <TextView android:id="@+id/progress_amount" android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingTop="3dp" android:textSize="13sp" android:textColor="#50685A" android:maxLines="1" android:scrollHorizontally="false" android:autoSizeTextType="uniform" android:autoSizeMinTextSize="10sp" android:autoSizeMaxTextSize="13sp" android:autoSizeStepGranularity="1sp"/>
+    <ImageView android:id="@+id/progress_week" android:layout_width="match_parent" android:layout_height="92dp" android:layout_marginTop="4dp" android:scaleType="fitXY" android:contentDescription="@string/progress_week_description"/>
+</LinearLayout>

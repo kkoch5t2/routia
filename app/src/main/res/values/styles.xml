@@ -1,0 +1,37 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="RoutiaLight" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="29">false</item>
+        <item name="android:colorAccent">#326651</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#FFF0D0</item>
+    </style>
+    <style name="RoutiaDark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:isLightTheme" tools:targetApi="29">false</item>
+        <item name="android:forceDarkAllowed" tools:targetApi="29">false</item>
+        <item name="android:colorAccent">#9DD8B5</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">#111C17</item>
+    </style>
+    <style name="RoutiaBlack" parent="RoutiaDark">
+        <item name="android:windowBackground">#121212</item>
+    </style>
+    <!-- Preserve the user's explicit light palette even under expanded system dark mode. -->
+    <style name="RoutiaExplicitLight" parent="RoutiaLight">
+        <item name="android:isLightTheme" tools:targetApi="29">false</item>
+    </style>
+    <style name="AppTheme" parent="RoutiaLight" />
+    <style name="RecordSheetLight" parent="RoutiaExplicitLight">
+        <item name="android:windowIsTranslucent">true</item><item name="android:windowBackground">@android:color/transparent</item><item name="android:backgroundDimEnabled">false</item><item name="android:windowDisablePreview">true</item>
+    </style>
+    <style name="RecordSheetDark" parent="RoutiaDark">
+        <item name="android:windowIsTranslucent">true</item><item name="android:windowBackground">@android:color/transparent</item><item name="android:backgroundDimEnabled">false</item><item name="android:windowDisablePreview">true</item>
+    </style>
+    <style name="RecordSheetBlack" parent="RoutiaBlack">
+        <item name="android:windowIsTranslucent">true</item><item name="android:windowBackground">@android:color/transparent</item><item name="android:backgroundDimEnabled">false</item><item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>

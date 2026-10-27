@@ -1,0 +1,4 @@
+<resources><item name="amount_input" type="id"/><item name="amount_note" type="id"/><item name="celebration_scene" type="id"/><item name="celebration_continue" type="id"/>    <item name="amount_remove" type="id"/>
+    <item name="ruti_header" type="id"/><item name="ruti_guide" type="id"/><item name="widget_mascot" type="id"/><item name="progress_mascot" type="id"/>
+    <item name="celebration_streak" type="id"/><item name="celebration_total" type="id"/><item name="celebration_recorded" type="id"/><item name="celebration_week" type="id"/>
+</resources>

@@ -1,0 +1,13 @@
+Copyright (c) 2026 Routia contributors. All rights reserved.
+
+The original Routia source code, documentation and character artwork are
+published for inspection. No additional permission to redistribute, sublicense
+or commercially reuse these materials is granted by this notice. Rights
+provided by applicable law or the hosting service's terms remain unaffected.
+
+This is a source-available project; this notice is not an open-source license.
+A separate written license may be granted by the relevant rights holder.
+
+Third-party materials remain subject to their own licenses. In particular,
+the Gradle wrapper files retain their Apache License 2.0 notices and license.
+See THIRD-PARTY-NOTICES.md and third-party/gradle/LICENSE.

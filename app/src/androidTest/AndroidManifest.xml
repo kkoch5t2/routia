@@ -1,0 +1,1 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"><instrumentation android:name="app.routia.MvpInstrumentation" android:targetPackage="app.routia" android:label="Routia QA"/></manifest>

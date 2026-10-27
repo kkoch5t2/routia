@@ -1,0 +1,9 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingBottom="10dp">
+    <TextView android:id="@+id/row_goal" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="#253B30" android:maxLines="1" android:ellipsize="end"/>
+    <TextView android:id="@+id/row_minimum" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:textColor="#53665C" android:maxLines="2" android:ellipsize="end" android:paddingTop="3dp" android:paddingBottom="6dp"/>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+        <TextView android:id="@+id/row_min_button" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:gravity="center" android:text="@string/minimum_action" android:textSize="12sp" android:textColor="#254D3D" android:background="@drawable/widget_button" android:layout_marginEnd="4dp"/>
+        <TextView android:id="@+id/row_full_button" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:gravity="center" android:text="@string/full_action" android:textSize="12sp" android:textColor="#254D3D" android:background="@drawable/widget_button" android:layout_marginEnd="4dp"/>
+        <TextView android:id="@+id/row_extra_button" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:gravity="center" android:text="@string/challenge_action" android:textSize="12sp" android:textColor="#254D3D" android:background="@drawable/widget_button"/>
+    </LinearLayout>
+</LinearLayout>

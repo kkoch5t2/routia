@@ -1,0 +1,32 @@
+package app.routia;
+import android.app.*;
+import android.content.*;
+import android.os.*;
+import android.view.*;
+import android.view.inspector.WindowInspector;
+import android.widget.*;
+import java.time.*;
+final class RevisionReview {
+    final Instrumentation i;final UxReview ui;final Store store;int n;
+    RevisionReview(Instrumentation instrumentation){i=instrumentation;ui=new UxReview(i);store=Store.get(i.getTargetContext());}
+    void check(boolean ok,String label){n++;if(!ok)throw new AssertionError(label);}
+    View window(){for(View root:WindowInspector.getGlobalWindowViews())if(PreviewFrames.find(root,"保存")!=null||PreviewFrames.find(root,"記録を保存")!=null)return root;throw new AssertionError("No form");}
+    EditText field(String hint){EditText value=field(window(),hint);if(value==null)throw new AssertionError("Missing input "+hint);return value;}
+    EditText field(View root,String hint){if(root instanceof EditText&&hint.contentEquals(((EditText)root).getHint()))return (EditText)root;if(root instanceof ViewGroup){ViewGroup g=(ViewGroup)root;for(int at=0;at<g.getChildCount();at++){EditText v=field(g.getChildAt(at),hint);if(v!=null)return v;}}return null;}
+    void text(EditText field,String value){i.runOnMainSync(()->field.setText(value));i.waitForIdleSync();}
+    GrassView grass(){return UxReview.type(ui.a.getWindow().getDecorView(),GrassView.class);}
+    int run()throws Exception{
+        if(!Build.HARDWARE.contains("ranchu")&&!Build.HARDWARE.contains("goldfish"))throw new AssertionError("Emulator only");check(store.habits().isEmpty(),"Use empty emulator");
+        ui.a=i.startActivitySync(new Intent(i.getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));
+        ui.mainTap("最初の習慣をつくる");EditText goal=field("例：英語を聞く");ui.await("未入力：習慣名");i.runOnMainSync(()->PreviewFrames.scroll(window()).fullScroll(View.FOCUS_DOWN));SystemClock.sleep(200);ui.tap("保存");ui.await("⚠ 保存できません\n習慣名を入力してください");check(store.habits().isEmpty(),"Blank title does not create");SystemClock.sleep(350);i.runOnMainSync(()->{android.graphics.Rect r=new android.graphics.Rect();check(goal.hasFocus()&&goal.getGlobalVisibleRect(r),"Error reveals and focuses title");});ui.shot("missing-title");text(goal,"英語を聞く");ui.await("必須項目：入力済み");ui.tap("保存");check(store.habits().size()==1,"Corrected title saves");
+        long id=store.habits().get(0).id();ui.mainTap("🚀 いつもより頑張った");ui.await("いつもより、一歩先へ！");check(store.level(id,LocalDate.now())==3,"Extra button stores grade");ui.tap("今日は、ここまででも十分。");
+        i.runOnMainSync(()->{try{Reminders.action(i.getTargetContext(),id,2,LocalDate.now().toString(),"widget").send();}catch(PendingIntent.CanceledException e){throw new RuntimeException(e);}});SystemClock.sleep(350);check(store.level(id,LocalDate.now())==3,"Widget cannot downgrade extra");ui.mainTap("記録を修正");check(ui.await("🚀 いつもより頑張った").isChecked(),"Correction selects extra");ui.tap("🏆 通常ゴール達成");ui.tap("変更を保存");check(store.level(id,LocalDate.now())==2,"Explicit normal correction saves");ui.mainTap("🚀 いつもより頑張った");ui.tap("今日は、ここまででも十分。");
+        ui.mainTap("＋ 習慣を追加  ·  1 / 3");text(field("例：英語を聞く"),"読書");ui.choose("回数・数量");EditText unit=field("例：回 / ページ / km"),target=field("例：30");text(unit,"　");text(target,"-2");ui.tap("保存");ui.await("⚠ 保存できません\n1日の数値目標は0〜1000000の数値で入力してください\n単位（回・ページなど）を入力してください");check(store.habits().size()==1,"All invalid fields prevent save");ui.shot("missing-unit");text(target,"10");text(unit,"ページ");ui.tap("保存");check(store.habits().size()==2,"Corrected count habit saves");
+        ui.mainTap("回数・数量を記録");EditText amount=field("例：20");text(amount,"-1");ui.tap("記録を保存");ui.await("⚠ 保存できません\n今日の合計は0〜1000000の数値で入力してください");check(store.level(store.habits().get(1).id(),LocalDate.now())==0,"Invalid amount does not mark achievement");text(amount,"15");ui.choose("いつもより頑張った");ui.tap("記録を保存");ui.tap("今日は、ここまででも十分。");long countId=store.habits().get(1).id();check(store.level(countId,LocalDate.now())==3&&store.entry(countId,LocalDate.now()).amount()==15,"Amount and extra save together");
+        store.saveHabit(0,"","ストレッチ","1分","time",10,"分");LocalDate today=LocalDate.now();store.getWritableDatabase().execSQL("UPDATE habits SET created=? WHERE id=?",new Object[]{today.minusDays(400).toString(),id});store.getWritableDatabase().execSQL("INSERT INTO records(habit_id,day,level,note) VALUES(?,?,1,'最低の記録'),(?,?,2,'通常の記録')",new Object[]{id,today.minusDays(1).toString(),id,today.minusDays(2).toString()});
+        ui.mainTap("成果");check(grass().layoutMode==2&&grass().shades.length==today.lengthOfMonth(),"Default is actual month");GrassView month=grass();check(month.start.getDayOfMonth()==1&&month.end.getDayOfMonth()==today.lengthOfMonth(),"Month bounds");check(month.shades[today.getDayOfMonth()-1]==4&&month.shades[today.getDayOfMonth()-2]==1&&month.shades[today.getDayOfMonth()-3]==2,"Three calendar shades");TrendView graph=UxReview.type(ui.a.getWindow().getDecorView(),TrendView.class);check(graph.unit.equals("達成グレード")&&graph.values[today.getDayOfMonth()-1]==3&&graph.getParent() instanceof LinearLayout,"Check graph restored with extra");i.runOnMainSync(()->PreviewFrames.scroll(ui.a.getWindow().getDecorView()).scrollTo(0,Ui.dp(i.getTargetContext(),350)));ui.shot("month");
+        ui.tap("月");ui.tap("週");check(grass().layoutMode==1&&grass().shades.length==7,"Week changes to seven days");ui.shot("week");ui.tap("週");ui.tap("年");check(grass().layoutMode==0&&grass().shades.length==today.lengthOfYear(),"Year changes to full year");check(UxReview.type(ui.a.getWindow().getDecorView(),Spinner.class).getAdapter().getCount()==3,"Only week month year choices");ui.mainTap("◀ 前年");check(grass().start.getYear()==today.getYear()-1,"Previous year remains available");ui.mainTap("翌年 ▶");check(grass().start.getYear()==today.getYear(),"Next year returns to current year");GrassView longGrid=grass();int last=longGrid.monthLabels.length-1;check(longGrid.getWidth()>=longGrid.d(2+longGrid.monthColumns[last]*GrassView.STEP)+longGrid.p.measureText(longGrid.monthLabels[last]),"Last month label remains inside long grid");
+        i.runOnMainSync(()->longGrid.requestRectangleOnScreen(new android.graphics.Rect(Math.max(0,longGrid.getWidth()-Ui.dp(ui.a,250)),0,longGrid.getWidth(),longGrid.getHeight()),false));i.waitForIdleSync();ui.shot("calendar-long");ui.tap("年");ui.tap("月");check(grass().layoutMode==2,"Switching back redraws month");
+        return n+ui.checks;
+    }
+}

@@ -1,0 +1,42 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <permission android:name="${applicationId}.INTERNAL" android:protectionLevel="signature"/><uses-permission android:name="${applicationId}.INTERNAL"/>
+    <application android:name=".RoutiaApp" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/AppTheme" android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+        <activity android:name=".ReportSettingsActivity" android:exported="false" />
+        <activity android:name=".ReportActivity" android:exported="false" />
+        <activity android:name=".AchievementChartsActivity" android:exported="false" />
+        <service android:name=".ReportJob" android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <activity android:name=".RecordActivity" android:taskAffinity="app.routia.record" android:exported="false" android:theme="@style/RecordSheetLight" android:windowSoftInputMode="adjustResize" android:excludeFromRecents="true"/>
+        <activity android:name=".FocusActivity" android:exported="false" android:taskAffinity="app.routia.focus" android:launchMode="singleTask" android:enableOnBackInvokedCallback="false" tools:targetApi="33" />
+        <receiver android:name=".FocusReceiver" android:exported="false" />
+        <receiver android:name=".ActionReceiver" android:exported="false" />
+        <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".SystemReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"/>
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".HabitWidget" android:exported="false" android:label="Routia · 記録">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/habit_widget"/>
+        </receiver>
+        <receiver android:name=".ProgressWidget" android:exported="false" android:label="Routia · 成果">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/progress_widget"/>
+        </receiver>
+        <service android:name=".WidgetRowsService" android:exported="false" android:permission="android.permission.BIND_REMOTEVIEWS"/>
+    </application>
+</manifest>

@@ -1,0 +1,15 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'app.routia'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'app.routia'
+        minSdk 26
+        targetSdk 35
+        versionCode 57
+        versionName '1.0.0'
+        testInstrumentationRunner 'app.routia.MvpInstrumentation'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    buildTypes { debug { if (project.hasProperty('routiaReportQa')) { applicationIdSuffix '.reportqa' } }; release { minifyEnabled false } }
+}
