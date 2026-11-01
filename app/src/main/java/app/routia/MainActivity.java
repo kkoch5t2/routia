@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
                 toggle.setContentDescription("やることの詳細をすべて表示");toggle.setOnClickListener(v->{boolean expanded=body.getMaxLines()!=Integer.MAX_VALUE;body.setMaxLines(expanded?Integer.MAX_VALUE:3);body.setEllipsize(expanded?null:android.text.TextUtils.TruncateAt.END);toggle.setText(expanded?"閉じる":"もっと見る");toggle.setContentDescription(expanded?"やることの詳細を折りたたむ":"やることの詳細をすべて表示");});
                 c.addView(toggle);
             }
-            space(c,10);
+            space(c,18);
         }
         Set<LocalDate> days=achieved(h);sub(c,Rules.summary(Progress.streak(days,store.ticketDays(h.id()),displayedDay),days.size()));space(c,18);
         if(!check){
