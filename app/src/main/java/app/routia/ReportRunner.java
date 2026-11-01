@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.json.*;
 
 final class ReportRunner {
+    interface Transport { JSONObject post(String path,String key,JSONObject body)throws IOException,JSONException; }
     private static final ExecutorService WORK=Executors.newSingleThreadExecutor();
     private static final AtomicBoolean INITIALIZED=new AtomicBoolean();
     static void initialize(Context context){
@@ -67,27 +68,33 @@ final class ReportRunner {
         });
     }
     private static void generate(Context c,ReportStore db,ReportStore.Item item) {
+        generate(c,db,item,ReportRunner::post);
+    }
+    static void generate(Context c,ReportStore db,ReportStore.Item item,Transport transport) {
         boolean submitted=false;double estimate=0;
         try{
-            if(!ReportSettings.active(c,item.habit()))throw new IllegalArgumentException("この目標の継続レビューがオフ、または未接続です");
-            ReportBudget.Options options=ReportSettings.options(c);
-            if(item.manual()&&(!item.model().equals(options.model())||item.budget()!=options.limitYen()||!item.detail().equals(options.detail().id)))
-                throw new IllegalArgumentException("確認後にモデル・上限・詳しさが変わったため停止しました。もう一度料金を確認してください");
-            if(!db.recordOptions(item.id(),options))throw new IOException("レポートが取り消されました");
-            String key=ReportSettings.readKey(c);if(key.isEmpty())throw new IOException("APIキーが未設定です");
+            ReportBudget.Options options;ReportSettings.Credential credential;
+            synchronized(ReportSettings.class){
+                if(!ReportSettings.active(c,item.habit()))throw new IllegalArgumentException("この目標の継続レビューがオフ、または未接続です");
+                options=ReportSettings.options(c);
+                if(item.manual()&&(!item.model().equals(options.model())||item.budget()!=options.limitYen()||!item.detail().equals(options.detail().id)))
+                    throw new IllegalArgumentException("確認後にモデル・上限・詳しさが変わったため停止しました。もう一度料金を確認してください");
+                if(!db.recordOptions(item.id(),options))throw new IOException("レポートが取り消されました");
+                credential=ReportSettings.credential(c);if(credential.value.isEmpty())throw new IOException("APIキーが未設定です");
+            }
             JSONObject request=ReportData.request(new JSONObject(item.snapshot()),options);
-            JSONObject count=post("responses/input_tokens",key,request);
+            JSONObject count=transport.post("responses/input_tokens",credential.value,request);
             int input=count.getInt("input_tokens");
             ReportBudget.Reservation budget=ReportBudget.reserve(options,input,LocalDate.now());
             request.put("max_output_tokens",budget.maxOutput()).put("store",false).put("service_tier","default")
                 .put("reasoning",new JSONObject().put("effort","medium").put("mode","standard"));
             synchronized(ReportSettings.class){
-                if(!ReportSettings.active(c,item.habit())||!options.equals(ReportSettings.options(c)))throw new IllegalArgumentException("設定が変わったため、有料生成前に停止しました");
+                if(!ReportSettings.active(c,item.habit())||!options.equals(ReportSettings.options(c))||!ReportSettings.currentCredential(c,credential))throw new IllegalArgumentException("設定が変わったため、有料生成前に停止しました");
                 if(!db.sending(item.id(),budget.reservedYen().doubleValue()))throw new IOException("レポートが取り消されました");
             }
             // After this point the provider may charge, even if the connection drops. Never retry automatically.
             submitted=true;
-            JSONObject response=post("responses",key,request);
+            JSONObject response=transport.post("responses",credential.value,request);
             JSONObject usage=response.getJSONObject("usage");
             int usedInput=usage.getInt("input_tokens"),usedOutput=usage.getInt("output_tokens");
             if(usedInput<0||usedOutput<0||usedInput>input||usedOutput>budget.maxOutput())throw new IOException("利用量を確認できませんでした");
@@ -101,7 +108,8 @@ final class ReportRunner {
         }catch(Exception failure){
             String message=submitted?"生成結果を確認できなかったため停止しました。費用が発生している可能性があるため、自動再送はしません。":"接続・キー・料金情報を確認してください。有料生成は開始していません。";
             if(!submitted&&failure instanceof IllegalArgumentException)message=failure.getMessage();
-            db.finish(item.id(),"stopped","",message,estimate);
+            if(submitted)db.finish(item.id(),"stopped","",message,estimate);
+            else db.stopCounting(item.id(),message);
         }
     }
     static void complete(Context c,ReportStore db,long id,JSONObject result,double estimate)throws JSONException{

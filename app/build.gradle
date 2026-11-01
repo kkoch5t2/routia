@@ -6,8 +6,8 @@ android {
         applicationId 'app.routia'
         minSdk 26
         targetSdk 35
-        versionCode 57
-        versionName '1.0.0'
+        versionCode 60
+        versionName '1.0.3'
         testInstrumentationRunner 'app.routia.MvpInstrumentation'
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }

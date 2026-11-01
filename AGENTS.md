@@ -8,6 +8,8 @@
 - Check-only quick actions must not open the main app. Numeric recording requires a focused input Activity; one numeric value is sufficient. Widget collection clicks use an explicit validated Activity template, with mini check routing finishing without UI and a newly completed goal allowed to show its dedicated celebration. Do not launch Activity from a notification BroadcastReceiver.
 - Do not publish personal data, signing keys, passwords, SDK paths, or device IDs.
 - Keep release signing material outside the repository.
+- Serialize API credential saves/deletions and paid-submission transitions on ReportSettings.class. Rotate credential revisions and cancel only unsent work on any key save/delete; recheck the captured revision before paid submission. Preserve submitted/uncertain reservations and saved reports, and never let a cancelled attempt overwrite a newly approved queued retry. Verify with fake keys and an injected local transport, never a real paid request.
+- Protect credential controls, the paid-review switch and fee confirmation buttons against obscured touches. Hide untrusted overlays on sensitive windows where supported, and retain standard accessibility clicks. Pin the Gradle distribution SHA-256 to the official release checksum.
 - Run domain tests and Android lint after relevant changes. Use the separate integration database for storage tests.
 - UI smoke tests are emulator-only and require an empty test app. Never clear a real user's app data.
 - Report build verification, emulator verification, and installation on physical devices separately.

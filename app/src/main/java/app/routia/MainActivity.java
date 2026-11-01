@@ -110,6 +110,17 @@ public class MainActivity extends Activity {
     private void habitCard(Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
         LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"今日の記録",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
+        String description=store.description(h.id());
+        if(!description.isEmpty()){
+            c.addView(text("やることの詳細",13,GREEN,true));space(c,4);
+            TextView body=text(description,13,MUTED,false);body.setMaxLines(3);body.setEllipsize(android.text.TextUtils.TruncateAt.END);c.addView(body);
+            if(description.length()>60||description.contains("\n")){
+                TextView toggle=text("もっと見る",13,GREEN,true);toggle.setGravity(Gravity.CENTER_VERTICAL);toggle.setMinHeight(dp(44));toggle.setFocusable(true);
+                toggle.setContentDescription("やることの詳細をすべて表示");toggle.setOnClickListener(v->{boolean expanded=body.getMaxLines()!=Integer.MAX_VALUE;body.setMaxLines(expanded?Integer.MAX_VALUE:3);body.setEllipsize(expanded?null:android.text.TextUtils.TruncateAt.END);toggle.setText(expanded?"閉じる":"もっと見る");toggle.setContentDescription(expanded?"やることの詳細を折りたたむ":"やることの詳細をすべて表示");});
+                c.addView(toggle);
+            }
+            space(c,10);
+        }
         Set<LocalDate> days=achieved(h);sub(c,Rules.summary(Progress.streak(days,store.ticketDays(h.id()),displayedDay),days.size()));space(c,18);
         if(!check){
             c.addView(text(entry.amount()==null?"今日の記録はまだありません":"今日 "+Ui.number(entry.amount())+metric.unit(),18,MUTED,false));
@@ -194,6 +205,8 @@ public class MainActivity extends Activity {
     private void editor(Store.Habit h,String example){
         if(h==null&&store.habits().size()>=Rules.MAX_HABITS){Toast.makeText(this,"目標は10個まで登録できます。",Toast.LENGTH_LONG).show();return;}Dialog[] d={null};LinearLayout form=column();
         sub(form,"すべて任意です。そのまま保存でき、内容はあとから変えられます。");space(form,14);EditText goal=input(form,"習慣名（任意）","空欄なら「今日の習慣」",h!=null?h.goal():example!=null?example:"",120);
+        EditText description=input(form,"やることの詳細（任意）","例：英語のニュースを10分聞き、知らない表現を3つメモする",h==null?"":store.description(h.id()),1000);
+        description.setMinLines(3);description.setGravity(Gravity.TOP|Gravity.START);
         Store.Metric old=h==null?new Store.Metric("check",0,""):store.metric(h.id());Store.Goals prior=h==null?new Store.Goals(HabitDefaults.MINIMUM,HabitDefaults.FULL,HabitDefaults.EXTRA):store.goals(h.id());
         form.addView(text("記録のしかた",18,INK,true));space(form,12);RadioGroup kinds=new RadioGroup(this);
         String[] names={"✅ できたかだけ","⏱ 時間（分）","🔢 回数・数量"},descriptions={"決めた基準を選んで、1タップで記録。","タイマーまたは分数だけで記録。","数値だけで記録。達成の選択は不要。"},values={"check","time","count"};
@@ -212,7 +225,7 @@ public class MainActivity extends Activity {
             if(at!=0)try{amount=Inputs.number(target.getText().toString(),"1日の数値目標",0,1000000,false,true);}catch(IllegalArgumentException e){errors.add(e.getMessage());if(first==null)first=target;}
             if(!errors.isEmpty()){dialog.showProblem(first,String.join("\n",errors));return;}
             if(h!=null&&Focus.exists(this)&&Focus.prefs(this).getLong("habit",-1)==h.id()&&!old.kind().equals(values[at])){dialog.showProblem(kinds,"タイマーを完了または取り消してから記録方法を変更してください");return;}
-            try{store.saveConfiguredHabit(h==null?0:h.id(),cue.getText().toString(),goal.getText().toString(),minimum.getText().toString(),full.getText().toString(),extra.getText().toString(),values[at],amount==null?0:amount,at==0?"":at==1?"分":Inputs.clean(unit.getText().toString()));Reminders.all(this);HabitWidget.update(this);d[0].dismiss();render();Toast.makeText(this,"✅ 習慣を保存しました",Toast.LENGTH_SHORT).show();}catch(IllegalArgumentException e){dialog.showProblem(kinds,e.getMessage());}
+            try{store.saveConfiguredHabit(h==null?0:h.id(),cue.getText().toString(),goal.getText().toString(),minimum.getText().toString(),full.getText().toString(),extra.getText().toString(),values[at],amount==null?0:amount,at==0?"":at==1?"分":Inputs.clean(unit.getText().toString()),description.getText().toString());Reminders.all(this);HabitWidget.update(this);d[0].dismiss();render();Toast.makeText(this,"✅ 習慣を保存しました",Toast.LENGTH_SHORT).show();}catch(IllegalArgumentException e){dialog.showProblem(kinds,e.getMessage());}
         });
         Ui.show(d[0],this);
     }
@@ -448,7 +461,7 @@ public class MainActivity extends Activity {
     }
     private void refreshReviewFeature(){if(reviewFeatureRefresh!=null)reviewFeatureRefresh.run();}
     private void reviewFeatureControls(LinearLayout parent){
-        Switch master=new Switch(this);master.setTag("review_feature_switch");master.setText("継続レビューを使う");master.setTextSize(16);master.setTextColor(INK);master.setMinHeight(dp(56));parent.addView(master);
+        Switch master=new Switch(this);master.setTag("review_feature_switch");master.setText("継続レビューを使う");master.setTextSize(16);master.setTextColor(INK);master.setMinHeight(dp(56));SensitiveActions.protect(master);parent.addView(master);
         TextView status=text("",13,MUTED,false);status.setTag("review_feature_status");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);parent.addView(status);space(parent,10);
         boolean[] updating={false};
         Runnable sync=()->{boolean on=ReportSettings.featureEnabled(this);updating[0]=true;master.setChecked(on);updating[0]=false;status.setText(on?"全体オン · 選択した目標でレビューを生成します。":"全体オフ · 新しいレビューの生成は停止中です。設定と保存済みレビューは残ります。");};

@@ -15,13 +15,13 @@ public final class Store extends SQLiteOpenHelper {
         return instance;
     }
     private Store(Context c) { this(c, "routia.db"); }
-    Store(Context c, String databaseName) { super(c, databaseName, null, 7); }
+    Store(Context c, String databaseName) { super(c, databaseName, null, 8); }
     @Override public void onConfigure(SQLiteDatabase db) { db.setForeignKeyConstraintsEnabled(true); }
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE habits(id INTEGER PRIMARY KEY AUTOINCREMENT,cue TEXT NOT NULL,goal TEXT NOT NULL,minimum TEXT NOT NULL,created TEXT NOT NULL,hour INTEGER NOT NULL DEFAULT 21,minute INTEGER NOT NULL DEFAULT 0,reminder INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE records(habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,day TEXT NOT NULL,level INTEGER NOT NULL CHECK(level IN (1,2,3)),PRIMARY KEY(habit_id,day))");
         habitCapacity(db);
-        extras(db);tickets(db);goalSettings(db);
+        extras(db);tickets(db);goalSettings(db);habitDescription(db);
     }
     private void extras(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE habits ADD COLUMN metric TEXT NOT NULL DEFAULT 'check'");
@@ -39,7 +39,7 @@ public final class Store extends SQLiteOpenHelper {
             db.execSQL("CREATE TABLE records(habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,day TEXT NOT NULL,level INTEGER NOT NULL CHECK(level IN(1,2,3)),amount REAL,unit TEXT NOT NULL DEFAULT '',note TEXT NOT NULL DEFAULT '',PRIMARY KEY(habit_id,day))");
             db.execSQL("INSERT INTO records(habit_id,day,level,amount,unit,note) SELECT habit_id,day,level,amount,unit,note FROM records_v2");
             db.execSQL("DROP TABLE records_v2");
-        } if(oldVersion<4)tickets(db);if(oldVersion<5)goalSettings(db);if(oldVersion<7)habitCapacity(db); }
+        } if(oldVersion<4)tickets(db);if(oldVersion<5)goalSettings(db);if(oldVersion<7)habitCapacity(db);if(oldVersion<8)habitDescription(db); }
 
     private void habitCapacity(SQLiteDatabase db){
         db.execSQL("DROP TRIGGER IF EXISTS habit_limit");
@@ -53,6 +53,16 @@ public final class Store extends SQLiteOpenHelper {
         // Existing titles were the previous normal goal. Preserve that meaning and every record.
         db.execSQL("UPDATE habits SET full_goal=goal");
     }
+    /** A permanent, optional instruction for the goal, separate from daily recording notes. */
+    private void habitDescription(SQLiteDatabase db){
+        db.execSQL("ALTER TABLE habits ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+    }
+    public String description(long id){
+        if(id<=0)return "";
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT description FROM habits WHERE id=?",new String[]{""+id})){
+            return c.moveToFirst()?c.getString(0):"";
+        }
+    }
     public record Goals(String minimum,String full,String extra){}
     public Goals goals(long id){
         Habit h=habit(id);if(h==null)return new Goals("","","");
@@ -60,11 +70,17 @@ public final class Store extends SQLiteOpenHelper {
             return c.moveToFirst()?new Goals(HabitDefaults.minimum(h.minimum()),HabitDefaults.full(c.getString(0)),HabitDefaults.extra(c.getString(1))):new Goals(HabitDefaults.minimum(h.minimum()),HabitDefaults.FULL,HabitDefaults.EXTRA);
         }
     }
+    /** Legacy callers must not clear an already-saved description. */
     public long saveConfiguredHabit(long id,String cue,String goal,String minimum,String full,String extra,String kind,double target,String unit){
+        return saveConfiguredHabit(id,cue,goal,minimum,full,extra,kind,target,unit,description(id));
+    }
+    public long saveConfiguredHabit(long id,String cue,String goal,String minimum,String full,String extra,String kind,double target,String unit,String description){
+        description=Inputs.clean(description);
+        if(description.length()>1000)throw new IllegalArgumentException("やることの詳細は1000文字以内で入力してください");
         goal=HabitDefaults.title(goal);unit=HabitDefaults.unit(kind,unit);minimum=kind.equals("check")?HabitDefaults.minimum(minimum):Inputs.clean(minimum);full=HabitDefaults.full(full);extra=HabitDefaults.extra(extra);
         if(full.length()>120||extra.length()>120)throw new IllegalArgumentException("基準は120文字以内で入力してください");
         SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
-        try{long saved=saveHabit(id,cue,goal,minimum,kind,target,unit);ContentValues v=new ContentValues();v.put("full_goal",kind.equals("check")?full:"");v.put("extra_goal",kind.equals("check")?extra:"");db.update("habits",v,"id=?",new String[]{""+saved});db.setTransactionSuccessful();return saved;}finally{db.endTransaction();}
+        try{long saved=saveHabit(id,cue,goal,minimum,kind,target,unit);ContentValues v=new ContentValues();v.put("full_goal",kind.equals("check")?full:"");v.put("extra_goal",kind.equals("check")?extra:"");v.put("description",description);db.update("habits",v,"id=?",new String[]{""+saved});db.setTransactionSuccessful();return saved;}finally{db.endTransaction();}
     }
     private void tickets(SQLiteDatabase db){
         db.execSQL("CREATE TABLE IF NOT EXISTS tickets(habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,day TEXT NOT NULL,used_on TEXT NOT NULL,PRIMARY KEY(habit_id,day))");

@@ -9,6 +9,12 @@ import javax.crypto.*;
 import javax.crypto.spec.GCMParameterSpec;
 
 final class ReportSettings {
+    /** A request owns one credential revision; never include its value in diagnostics. */
+    static final class Credential {
+        final String value,revision;
+        private Credential(String value,String revision){this.value=value;this.revision=revision;}
+        @Override public String toString(){return "Credential[redacted]";}
+    }
     static SharedPreferences prefs(Context c){return c.getSharedPreferences("routia_reports",Context.MODE_PRIVATE);}
     private static javax.crypto.SecretKey key()throws Exception{
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);
@@ -19,13 +25,29 @@ final class ReportSettings {
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());
         return generator.generateKey();
     }
-    static void saveKey(Context c,String value)throws Exception{
+    static synchronized void saveKey(Context c,String value)throws Exception{
         value=value.trim();if(value.length()<16||value.length()>512||value.contains("\n")||value.contains("\r"))throw new IllegalArgumentException("APIキーを確認してください");
         Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key());
         String iv=Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP),encrypted=Base64.encodeToString(cipher.doFinal(value.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
-        if(!prefs(c).edit().putString("key_iv",iv).putString("key_cipher",encrypted).commit())throw new IllegalStateException("キーを保存できませんでした");
+        if(!prefs(c).edit().putString("key_iv",iv).putString("key_cipher",encrypted)
+            .putString("key_revision",java.util.UUID.randomUUID().toString()).commit())throw new IllegalStateException("キーを保存できませんでした");
+        cancelCredentialWork(c);
     }
-    static String readKey(Context c)throws Exception{
+    static synchronized void deleteKey(Context c){
+        if(!prefs(c).edit().remove("key_cipher").remove("key_iv")
+            .putString("key_revision",java.util.UUID.randomUUID().toString()).commit())throw new IllegalStateException("キーを削除できませんでした");
+        try{cancelCredentialWork(c);}finally{ReportJob.schedule(c);}
+    }
+    private static void cancelCredentialWork(Context c){
+        try(ReportStore db=new ReportStore(c)){db.cancelAllUnsent("接続キーが変更・削除されたため、送信前に停止しました。もう一度料金を確認してください。");}
+    }
+    static synchronized Credential credential(Context c)throws Exception{
+        return new Credential(readKey(c),prefs(c).getString("key_revision",""));
+    }
+    static synchronized boolean currentCredential(Context c,Credential credential){
+        return configured(c)&&credential.revision.equals(prefs(c).getString("key_revision",""));
+    }
+    static synchronized String readKey(Context c)throws Exception{
         String encoded=prefs(c).getString("key_cipher","");if(encoded.isEmpty())return "";
         Cipher cipher=Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE,key(),new GCMParameterSpec(128,Base64.decode(prefs(c).getString("key_iv",""),Base64.NO_WRAP)));

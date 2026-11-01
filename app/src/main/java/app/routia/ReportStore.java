@@ -107,8 +107,16 @@ final class ReportStore extends SQLiteOpenHelper {
         getWritableDatabase().update("reports",v,"habit=? AND state IN ('queued','counting') AND reserved=0",new String[]{""+habit});
     }
     void cancelAllUnsent(){
-        ContentValues v=new ContentValues();v.put("state","stopped");v.put("problem","継続レビュー全体をオフにしたため、送信前に停止しました。");
+        cancelAllUnsent("継続レビュー全体をオフにしたため、送信前に停止しました。");
+    }
+    void cancelAllUnsent(String reason){
+        ContentValues v=new ContentValues();v.put("state","stopped");v.put("problem",reason);
         getWritableDatabase().update("reports",v,"state IN ('queued','counting') AND reserved=0",null);
+    }
+    void stopCounting(long id,String problem){
+        ContentValues v=new ContentValues();v.put("state","stopped");v.put("problem",problem);
+        // A cancelled attempt must not overwrite a newly approved queued retry.
+        getWritableDatabase().update("reports",v,"id=? AND state='counting' AND reserved=0",new String[]{""+id});
     }
     boolean sending(long id,double reserve){ContentValues v=new ContentValues();v.put("state","sending");v.put("reserved",reserve);return getWritableDatabase().update("reports",v,"id=? AND state='counting'",new String[]{""+id})==1;}
     void finish(long id,String state,String result,String problem,double estimate){

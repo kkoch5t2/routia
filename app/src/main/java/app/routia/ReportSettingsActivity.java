@@ -22,7 +22,7 @@ public final class ReportSettingsActivity extends ReportScreenActivity {
     private final Map<Long,Switch> targets=new LinkedHashMap<>();
     static Intent intent(Context c){return new Intent(c,ReportSettingsActivity.class);}
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);build();
+        super.onCreate(state);getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);SensitiveActions.protectWindow(getWindow());build();
         if(state!=null){
             String draftModel=state.getString("model",ReportSettings.options(this).model());
             for(int at=0;at<models.getChildCount();at++){RadioButton radio=(RadioButton)models.getChildAt(at);if(draftModel.equals(radio.getTag()))models.check(radio.getId());}
@@ -95,11 +95,12 @@ public final class ReportSettingsActivity extends ReportScreenActivity {
         notices.addView(Ui.button(activity,"完了通知の設定",false,()->ReportNotices.permission(this)));
         LinearLayout connection=card("🔑 5. OpenAIに接続");
         text(connection,ReportSettings.configured(activity)?"接続キー：保存済み":"接続キー：未設定",14,Ui.GREEN,true);gap(connection,8);
-        keyInput=new EditText(activity);keyInput.setSingleLine(true);keyInput.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);keyInput.setHint(ReportSettings.configured(activity)?"変更するときだけ貼り付け":"APIキーを貼り付け");keyInput.setTextColor(Ui.ink(activity,Ui.INK));keyInput.setSaveEnabled(false);connection.addView(keyInput,new LinearLayout.LayoutParams(-1,dp(56)));gap(connection,8);
+        keyInput=new EditText(activity);keyInput.setSingleLine(true);keyInput.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);keyInput.setHint(ReportSettings.configured(activity)?"変更するときだけ貼り付け":"APIキーを貼り付け");keyInput.setTextColor(Ui.ink(activity,Ui.INK));keyInput.setSaveEnabled(false);SensitiveActions.protect(keyInput);connection.addView(keyInput,new LinearLayout.LayoutParams(-1,dp(56)));gap(connection,8);
         note(connection,"この入力欄1か所だけで設定します。キー未設定では通信・有料生成は行いません。利用料はOpenAIから請求されます。");
-        if(ReportSettings.configured(activity)){gap(connection,12);connection.addView(Ui.button(activity,"接続キーを削除",false,()->new AlertDialog.Builder(activity).setTitle("接続キーを削除する？").setMessage("今後の生成を止めます。対象目標の選択とレポートは残ります。").setPositiveButton("削除",(d,w)->{
-            ReportSettings.prefs(activity).edit().remove("key_cipher").remove("key_iv").apply();ReportJob.schedule(activity);finish();
-        }).setNegativeButton("戻る",null).show()));}
+        if(ReportSettings.configured(activity)){gap(connection,12);connection.addView(Ui.button(activity,"接続キーを削除",false,()->SensitiveActions.protect(new AlertDialog.Builder(activity).setTitle("接続キーを削除する？").setMessage("送信前の生成を止めます。送信済みの処理は取り消せません。対象目標の選択とレポートは残ります。").setPositiveButton("削除",(d,w)->{
+            try{ReportSettings.deleteKey(activity);finish();}
+            catch(RuntimeException failure){Toast.makeText(activity,"キーを削除できませんでした。もう一度お試しください。",Toast.LENGTH_LONG).show();}
+        }).setNegativeButton("戻る",null).show())));}
 
         LinearLayout info=card("ℹ️ 金額とデータについて");
         note(info,"金額の目安は、入力4,000〜10,000・内部推論1,000〜5,000トークンを仮定した試算です。本文とJSONの出力は、簡潔500〜1,000・標準1,000〜2,000・詳細2,500〜4,500トークンで計算しています。");gap(info,8);
