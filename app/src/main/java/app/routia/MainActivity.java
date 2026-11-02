@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
     private TextView button(String s,boolean primary,Runnable a){return Ui.button(this,s,primary,a);}
     static Intent settingsIntent(Context c){return new Intent(c,MainActivity.class).setAction("app.routia.OPEN_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP);}
     private void sub(LinearLayout l,String s){l.addView(text(s,13,MUTED,false));}
+    private void sectionHeading(LinearLayout l,String label){l.addView(text(label,13,GREEN,true));space(l,4);}
     private LinearLayout card(LinearLayout parent){LinearLayout l=column();l.setPadding(dp(18),dp(18),dp(18),dp(18));l.setBackground(shape(Color.WHITE,24));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(14);parent.addView(l,p);return l;}
     private void header(String eyebrow,String title,String body){sub(content,eyebrow);space(content,7);content.addView(text(title,28,INK,true));space(content,10);sub(content,body);space(content,22);}
     @Override public void onCreate(Bundle b){AppColors.applyTheme(this);super.onCreate(b);BG=Ui.surface(this,Ui.BG);INK=Ui.ink(this,Ui.INK);GREEN=Ui.ink(this,Ui.GREEN);MUTED=Ui.ink(this,Ui.MUTED);PALE=Ui.surface(this,Ui.PALE);store=Store.get(this);if(b!=null){page=b.getInt("page");resumeScrollY=b.getInt("scroll");reportTask=b.getLong("report_task",0);reportYear=b.getInt("report_year",0);reportMonth=b.getInt("report_month",0);reportPage=Math.max(0,b.getLong("report_page",0));}
@@ -109,10 +110,10 @@ public class MainActivity extends Activity {
     }
     private void habitCard(Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
-        LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"今日の記録",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
+        LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
         String description=store.description(h.id());
         if(!description.isEmpty()){
-            c.addView(text("やることの詳細",13,GREEN,true));space(c,4);
+            sectionHeading(c,"やることの詳細");
             TextView body=text(description,13,MUTED,false);body.setMaxLines(3);body.setEllipsize(android.text.TextUtils.TruncateAt.END);c.addView(body);
             if(description.length()>60||description.contains("\n")){
                 TextView toggle=text("もっと見る",13,GREEN,true);toggle.setGravity(Gravity.CENTER_VERTICAL);toggle.setMinHeight(dp(44));toggle.setFocusable(true);
@@ -121,10 +122,11 @@ public class MainActivity extends Activity {
             }
             space(c,18);
         }
-        Set<LocalDate> days=achieved(h);sub(c,Rules.summary(Progress.streak(days,store.ticketDays(h.id()),displayedDay),days.size()));space(c,18);
+        Set<LocalDate> days=achieved(h);sectionHeading(c,"過去の記録");sub(c,Rules.summary(Progress.streak(days,store.ticketDays(h.id()),displayedDay),days.size()));space(c,18);
+        sectionHeading(c,"今日の記録");
         if(!check){
-            c.addView(text(entry.amount()==null?"今日の記録はまだありません":"今日 "+Ui.number(entry.amount())+metric.unit(),18,MUTED,false));
-            if(metric.target()>0){space(c,5);sub(c,"今日の目標 "+Ui.number(metric.target())+metric.unit());}
+            sub(c,entry.amount()==null||entry.amount()<=0?"❌ 今日の記録はまだありません":Rules.amountEmoji(entry.amount(),metric.target())+" 今日 "+Ui.number(entry.amount())+metric.unit());
+            if(metric.target()>0){space(c,18);sectionHeading(c,"今日の目標");sub(c,(timed?"⏱️":"🔢")+Ui.number(metric.target())+metric.unit());}
             space(c,18);
             todayReviewButton(c,h);
             if(timed){c.addView(button(entry.amount()==null?"タイマーを始める":"タイマーで追加する",true,()->startFocus(h)));space(c,10);}
@@ -132,6 +134,8 @@ public class MainActivity extends Activity {
             if(!entry.note().isEmpty()){space(c,12);sub(c,entry.note());}
             return;
         }
+        sub(c,entry.level()==0?"❌ 今日の記録はまだありません":entry.level()==Rules.FULL?"✅ 目標達成":Rules.grade(entry.level()));space(c,18);
+        sectionHeading(c,"今日の目標");
         Store.Goals goals=store.goals(h.id());
         sub(c,"🌱 ミニ達成： "+(goals.minimum().isEmpty()?"基準を設定してください":goals.minimum()));space(c,5);
         sub(c,"🏆 目標達成： "+(goals.full().isEmpty()?"基準を設定してください":goals.full()));if(!goals.extra().isEmpty()){space(c,5);sub(c,"🚀 チャレンジ達成： "+goals.extra());}space(c,14);

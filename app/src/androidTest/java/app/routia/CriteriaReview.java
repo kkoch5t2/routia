@@ -25,6 +25,12 @@ final class CriteriaReview {
  void capture(View target,String name){i.runOnMainSync(()->{try{Bitmap image=Bitmap.createBitmap(target.getWidth(),target.getHeight(),Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(image);canvas.drawColor(Ui.surface(c,Ui.BG));target.draw(canvas);try(FileOutputStream out=new FileOutputStream(new File(c.getExternalFilesDir(null),name+".png"))){image.compress(Bitmap.CompressFormat.PNG,100,out);}image.recycle();}catch(Exception e){throw new AssertionError(e);}});}
  int run()throws Exception{
   if(!Build.HARDWARE.contains("ranchu")&&!Build.HARDWARE.contains("goldfish"))throw new AssertionError("Emulator only");
+  check(Rules.amountEmoji(null,15).equals("❌"),"No numeric record gets a cross");
+  check(Rules.amountEmoji(0d,15).equals("❌"),"Zero effort gets a cross");
+  check(Rules.amountEmoji(5d,15).equals("🌱"),"Below-target effort gets a sprout");
+  check(Rules.amountEmoji(15d,15).equals("✅"),"Target met gets a check");
+  check(Rules.amountEmoji(16d,15).equals("🚀"),"Above-target effort gets a rocket");
+  check(Rules.amountEmoji(3d,0).equals("✅"),"Targetless positive effort counts as recorded");
   migration();descriptionMigration();Store s=Store.get(c);check(s.habits().isEmpty(),"Requires empty app");long id=0,numeric=0;MainActivity a=null;
   try{
    a=(MainActivity)i.startActivitySync(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));View decor=a.getWindow().getDecorView();MainActivity active=a;

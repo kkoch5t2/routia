@@ -44,6 +44,13 @@ public final class Rules {
             previousMissed=miss;
         }return hits;
     }
+    /** Emoji for numeric records: unrecorded, partial effort, target met or exceeded. */
+    public static String amountEmoji(Double amount,double target){
+        if(amount==null||amount<=0)return "❌";
+        if(target>0&&amount<target)return "🌱";
+        if(target>0&&amount>target)return "🚀";
+        return "✅";
+    }
     public static String summary(int streak,int total){return "🔥 連続"+streak+"日 / ✅ 累計"+total+"日";}
     public static boolean celebrationEligible(String kind,double target,int level,Double amount){
         return level>=FULL && ("check".equals(kind)||target>0&&amount!=null&&Double.isFinite(amount)&&amount>=target);
