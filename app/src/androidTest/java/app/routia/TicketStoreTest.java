@@ -46,6 +46,27 @@ final class TicketStoreTest {
         check(!s.recovery(s.habit(id),today),"Protected rest is not a broken-streak return");
         s.close();s=new Store(c,name);s.evaluateTickets(today);check(s.ticketDays(id).size()==1,"Upgrade evaluation not repeated");
         s.delete(id);check(s.ticketDays(id).isEmpty()&&s.pledges().size()==1,"Delete cascades tickets, preserves pledge ledger");s.close();c.deleteDatabase(name);
+
+        name="routia-focus-midnight-test.db";c.deleteDatabase(name);s=new Store(c,name);
+        today=LocalDate.now();LocalDate yesterday=today.minusDays(1);
+        long timer=s.saveHabit(0,"","夜の英語","1分","time",15,"分");
+        s.getWritableDatabase().execSQL("UPDATE habits SET created=? WHERE id=?",new Object[]{yesterday.toString(),timer});
+        s.getWritableDatabase().execSQL("INSERT INTO records(habit_id,day,level,amount,unit,note) VALUES(?,?,1,3.5,'分','以前のメモ')",new Object[]{timer,yesterday.toString()});
+        s.getWritableDatabase().execSQL("INSERT INTO tickets(habit_id,day,used_on) VALUES(?,?,?)",new Object[]{timer,yesterday.toString(),today.toString()});
+        long previous=s.newSession(timer);
+        s.getWritableDatabase().execSQL("UPDATE sessions SET day=? WHERE id=?",new Object[]{yesterday.toString(),previous});
+        check(s.completeTimedSession(previous,15*60),"Midnight session credited");
+        Store.Entry backfill=s.entry(timer,yesterday);
+        check(backfill.level()==2&&backfill.amount()==18.5&&backfill.note().equals("以前のメモ"),"Midnight finish credits start day, merges amount and preserves note");
+        check(s.entry(timer,today).level()==0,"Midnight finish does not fabricate today's completion");
+        check(!s.ticket(timer,yesterday),"Finished session reclaims erroneously consumed ticket");
+        check(s.focused(timer,yesterday,yesterday)==15*60,"Session history credited to its start day");
+        check(!s.completeTimedSession(previous,15*60)&&s.entry(timer,yesterday).amount()==18.5,"Duplicate receiver cannot double count");
+        long current=s.newSession(timer);check(s.completeTimedSession(current,5*60),"Same-day timer finishes");
+        check(s.entry(timer,today).level()==1&&s.entry(timer,today).amount()==5.0,"Same-day goal still tracks time");
+        check(s.recordAmount(timer,today,7.0,"今日のメモ",false).level()==1,"Manual correction still works");
+        check(s.entry(timer,yesterday).amount()==18.5,"Today's edits do not change historical timer totals");
+        s.close();c.deleteDatabase(name);
         return n;
     }
 }

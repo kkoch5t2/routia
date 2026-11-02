@@ -33,15 +33,12 @@ public final class Focus {
     static synchronized boolean complete(Context c){
         SharedPreferences p=prefs(c);if(!exists(c)||paused(c)||remaining(c)>0||p.getBoolean("finished",false))return false;
         long id=p.getLong("habit",-1);Store s=Store.get(c);int seconds=p.getInt("minutes",0)*60;boolean sameDay=LocalDate.now().toString().equals(p.getString("day",""));
-        android.database.sqlite.SQLiteDatabase db=s.getWritableDatabase();db.beginTransaction();boolean added=false;
-        try{
-            if(s.finishSession(p.getLong("session",0),seconds,true)){
-                added=true;if(s.habit(id)!=null&&sameDay){
-                    Store.Entry before=s.entry(id,LocalDate.now());
-                    if(s.metric(id).kind().equals("time")){s.recordAmount(id,LocalDate.now(),seconds/60.0,null,true);Store.Entry after=s.entry(id,LocalDate.now());p.edit().putBoolean("celebrate",Rules.shouldCelebrate("time",s.metric(id).target(),before.level(),before.amount(),after.level(),after.amount())).commit();}
-                }
-            }db.setTransactionSuccessful();
-        }finally{db.endTransaction();}
+        Store.Entry before=sameDay?s.entry(id,LocalDate.now()):null;
+        boolean added=s.completeTimedSession(p.getLong("session",0),seconds);
+        if(added&&sameDay&&s.habit(id)!=null){
+            Store.Entry after=s.entry(id,LocalDate.now());
+            p.edit().putBoolean("celebrate",Rules.shouldCelebrate("time",s.metric(id).target(),before.level(),before.amount(),after.level(),after.amount())).commit();
+        }
         p.edit().putBoolean("finished",true).commit();HabitWidget.update(c);Reminders.refreshVisible(c);return added;
     }
     static synchronized void clear(Context c,boolean abort){

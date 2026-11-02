@@ -159,6 +159,39 @@ public final class Store extends SQLiteOpenHelper {
         ContentValues v=new ContentValues();v.put("seconds",Math.max(0,seconds));v.put("completed",completed?1:-1);
         return getWritableDatabase().update("sessions",v,"id=? AND completed=0",new String[]{""+session})==1;
     }
+    /**
+     * Complete a focus session exactly once, and credit its full duration to the
+     * calendar day when it started. Unlike manual input, this may be yesterday.
+     * Session completion and achievement update share one transaction.
+     */
+    public boolean completeTimedSession(long session,int seconds) {
+        if(seconds<=0||seconds>180*60)throw new IllegalArgumentException("タイマーの時間が不正です");
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try {
+            long habitId;LocalDate day;
+            try(Cursor cursor=db.rawQuery("SELECT habit_id,day FROM sessions WHERE id=? AND completed=0",new String[]{""+session})){
+                if(!cursor.moveToFirst()){db.setTransactionSuccessful();return false;}
+                habitId=cursor.getLong(0);day=LocalDate.parse(cursor.getString(1));
+            }
+            Habit habit=habit(habitId);Metric metric=metric(habitId);
+            if(habit==null||!"time".equals(metric.kind())||day.isBefore(habit.created())||day.isAfter(LocalDate.now()))
+                throw new IllegalArgumentException("タイマーの記録先を確認してください");
+            Entry before=entry(habitId,day);
+            double total=(before.amount()==null?0:before.amount())+seconds/60.0;
+            if(!Double.isFinite(total)||total>1000000)throw new IllegalArgumentException("タイマーの合計時間が不正です");
+            int level=Rules.merge(before.level(),Rules.amountLevel(total,metric.target()));
+            ContentValues record=new ContentValues();record.put("level",level);record.put("amount",total);record.put("unit",metric.unit());
+            if(before.level()>0)db.update("records",record,"habit_id=? AND day=?",new String[]{""+habitId,day.toString()});
+            else{record.put("habit_id",habitId);record.put("day",day.toString());record.put("note","");db.insertOrThrow("records",null,record);}
+            // A midnight rollover may already have spent a ticket for this day.
+            // An actual completed session wins over an automatically issued ticket.
+            db.delete("tickets","habit_id=? AND day=?",new String[]{""+habitId,day.toString()});
+            ContentValues completed=new ContentValues();completed.put("seconds",seconds);completed.put("completed",1);
+            if(db.update("sessions",completed,"id=? AND completed=0",new String[]{""+session})!=1)
+                throw new IllegalStateException("タイマーの保存が競合しました");
+            db.setTransactionSuccessful();return true;
+        }finally{db.endTransaction();}
+    }
     public int focused(long id,LocalDate start,LocalDate end) {
         try(Cursor c=getReadableDatabase().rawQuery("SELECT COALESCE(SUM(seconds),0) FROM sessions WHERE habit_id=? AND day>=? AND day<=? AND completed=1",new String[]{""+id,start.toString(),end.toString()})){c.moveToFirst();return c.getInt(0);}
     }
