@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Bundle;
 import android.provider.DocumentsContract;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -13,9 +14,44 @@ import java.io.Writer;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.YearMonth;
 
 final class HabitHistoryCsv {
     private HabitHistoryCsv() {}
+
+    enum Period {
+        ALL("全期間"),
+        THIS_MONTH("今月"),
+        LAST_MONTH("先月");
+
+        final String label;
+
+        Period(String label) {
+            this.label = label;
+        }
+    }
+
+    record Selection(long habitId, Period period, LocalDate date) {
+        YearMonth month() {
+            YearMonth current = YearMonth.from(date);
+            return period == Period.LAST_MONTH ? current.minusMonths(1) : current;
+        }
+
+        Bundle saveState() {
+            Bundle bundle = new Bundle();
+            bundle.putLong("habit", habitId);
+            bundle.putString("period", period.name());
+            bundle.putString("date", date.toString());
+            return bundle;
+        }
+
+        static Selection restore(Bundle bundle) {
+            if (bundle == null) return null;
+            return new Selection(bundle.getLong("habit"),
+                Period.valueOf(bundle.getString("period")),
+                LocalDate.parse(bundle.getString("date")));
+        }
+    }
 
     static Intent createDocumentIntent(LocalDate date) {
         return new Intent(Intent.ACTION_CREATE_DOCUMENT)
@@ -24,14 +60,14 @@ final class HabitHistoryCsv {
             .putExtra(Intent.EXTRA_TITLE, "routia-records-" + date + ".csv");
     }
 
-    static boolean save(Context context, Uri destination) {
+    static boolean save(Context context, Uri destination, Selection selection) {
         if (!ContentResolver.SCHEME_CONTENT.equals(destination.getScheme())) return false;
         ContentResolver resolver = context.getContentResolver();
         try {
             OutputStream stream = resolver.openOutputStream(destination);
             if (stream == null) throw new IOException("No output stream");
             try (Writer output = new BufferedWriter(new OutputStreamWriter(stream, StandardCharsets.UTF_8))) {
-                Store.get(context).writeHistoryCsv(output);
+                Store.get(context).writeHistoryCsv(output, selection);
             }
             return true;
         } catch (IOException | RuntimeException failure) {

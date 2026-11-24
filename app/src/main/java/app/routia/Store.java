@@ -6,6 +6,7 @@ import android.database.sqlite.*;
 import java.io.IOException;
 import java.io.Writer;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.*;
 
 public final class Store extends SQLiteOpenHelper {
@@ -148,11 +149,23 @@ public final class Store extends SQLiteOpenHelper {
             while(c.moveToNext())a.add(new Entry(LocalDate.parse(c.getString(0)),c.getInt(1),c.isNull(2)?null:c.getDouble(2),c.getString(3),c.getString(4)));
         }return a;
     }
-    void writeHistoryCsv(Writer output) throws IOException {
-        try (Cursor rows = getReadableDatabase().rawQuery(
-                "SELECT r.day, h.goal, r.level, r.amount, r.unit"
-                + " FROM records r JOIN habits h ON h.id = r.habit_id"
-                + " ORDER BY r.day, r.habit_id", null)) {
+    void writeHistoryCsv(Writer output, HabitHistoryCsv.Selection selection) throws IOException {
+        StringBuilder query = new StringBuilder("SELECT r.day, h.goal, r.level, r.amount, r.unit"
+                + " FROM records r JOIN habits h ON h.id = r.habit_id WHERE 1 = 1");
+        List<String> args = new ArrayList<>();
+        if (selection.habitId() != 0) {
+            query.append(" AND r.habit_id = ?");
+            args.add(Long.toString(selection.habitId()));
+        }
+        if (selection.period() != HabitHistoryCsv.Period.ALL) {
+            YearMonth month = selection.month();
+            query.append(" AND r.day >= ? AND r.day < ?");
+            args.add(month.atDay(1).toString());
+            args.add(month.plusMonths(1).atDay(1).toString());
+        }
+        query.append(" ORDER BY r.day, r.habit_id");
+
+        try (Cursor rows = getReadableDatabase().rawQuery(query.toString(), args.toArray(new String[0]))) {
             HabitHistoryCsv.writeHeader(output);
             while (rows.moveToNext()) {
                 Double amount = rows.isNull(3) ? null : rows.getDouble(3);
