@@ -3,6 +3,8 @@ package app.routia;
 import android.content.*;
 import android.database.Cursor;
 import android.database.sqlite.*;
+import java.io.IOException;
+import java.io.Writer;
 import java.time.LocalDate;
 import java.util.*;
 
@@ -146,6 +148,20 @@ public final class Store extends SQLiteOpenHelper {
             while(c.moveToNext())a.add(new Entry(LocalDate.parse(c.getString(0)),c.getInt(1),c.isNull(2)?null:c.getDouble(2),c.getString(3),c.getString(4)));
         }return a;
     }
+    void writeHistoryCsv(Writer output) throws IOException {
+        try (Cursor rows = getReadableDatabase().rawQuery(
+                "SELECT r.day, h.goal, r.level, r.amount, r.unit"
+                + " FROM records r JOIN habits h ON h.id = r.habit_id"
+                + " ORDER BY r.day, r.habit_id", null)) {
+            HabitHistoryCsv.writeHeader(output);
+            while (rows.moveToNext()) {
+                Double amount = rows.isNull(3) ? null : rows.getDouble(3);
+                HabitHistoryCsv.writeRow(output, rows.getString(0), rows.getString(1),
+                    rows.getInt(2), amount, rows.getString(4));
+            }
+        }
+    }
+
     public void details(long id,LocalDate day,Double amount,String note) {
         if(!day.equals(LocalDate.now())||level(id,day)==0||note.length()>1000||amount!=null&&(!Double.isFinite(amount)||amount<0||amount>1000000))throw new IllegalArgumentException("数値とメモを確認してください");
         ContentValues v=new ContentValues();if(amount==null)v.putNull("amount");else v.put("amount",amount);v.put("unit",metric(id).unit());v.put("note",note.trim());
