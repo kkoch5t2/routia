@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public class MainActivity extends Activity {
+    private static final int CREATE_HISTORY_CSV = 201;
     private int BG,INK,GREEN,MUTED,PALE;
     private LinearLayout root,content;private Store store;private int page;private boolean registered;
     private LocalDate displayedDay;
@@ -513,8 +514,39 @@ public class MainActivity extends Activity {
         space(analysis,8);sub(analysis,"APIキーはここから1回だけ設定。対象は目標ごとに選べます。全体オフでは、共通設定を保存しても生成しません。送信済みの処理は取り消せません。");
         LinearLayout learn=card(content);learn.addView(text("🧠 ちょっとだけ、習慣の科学。",20,INK,true));space(learn,12);for(int i=0;i<Learn.TIPS.length;i++){final int at=i;learn.addView(button(Learn.TIPS[i][0],false,()->Learn.show(this,at)));space(learn,7);}
         LinearLayout widget=card(content);widget.addView(text("📱 ホーム画面のウィジェット",20,INK,true));space(widget,10);sub(widget,"「記録」は1タップで達成。「成果」は連続日数・累計日数と週間の折れ線を確認できます。");space(widget,18);widget.addView(button("背景色を選ぶ · "+WidgetColors.NAMES[WidgetColors.selected(this)],false,this::widgetColors));space(widget,12);widget.addView(button("記録ウィジェットを追加",false,()->WidgetSetup.show(this)));space(widget,12);widget.addView(button("成果ウィジェットを追加",false,()->WidgetSetup.showProgress(this)));
+        LinearLayout historyExport = card(content);
+        historyExport.addView(text("習慣記録の書き出し",20,INK,true));
+        space(historyExport,10);
+        sub(historyExport,"日付・習慣名・達成段階・時間や回数をCSVに保存します。");
+        space(historyExport,14);
+        historyExport.addView(button("CSVを書き出す",false,this::exportHistoryCsv));
         LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。アンインストール・データ消去で失われます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
     }
+    private void exportHistoryCsv() {
+        try {
+            startActivityForResult(HabitHistoryCsv.createDocumentIntent(LocalDate.now()), CREATE_HISTORY_CSV);
+        } catch (ActivityNotFoundException unavailable) {
+            Toast.makeText(this,"保存先を選ぶ画面を開けませんでした。",Toast.LENGTH_LONG).show();
+        }
+    }
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
+        super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode != CREATE_HISTORY_CSV || resultCode != RESULT_OK) return;
+        if (data == null || data.getData() == null) {
+            Toast.makeText(this,"CSVの保存先を確認できませんでした。",Toast.LENGTH_LONG).show();
+            return;
+        }
+        Context app = getApplicationContext();
+        Uri destination = data.getData();
+        new Thread(() -> {
+            boolean saved = HabitHistoryCsv.save(app,destination);
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(app,
+                saved ? "習慣記録をCSVに保存しました。" : "CSVを保存できませんでした。保存先を選び直してください。",
+                Toast.LENGTH_LONG).show());
+        },"routia-history-export").start();
+    }
+
     private void notificationTimes(){showReminderTimes(Reminders.times(this),0,null,-1);}
     private void showReminderTimes(int[] draft,int scrollY,Bundle pickerState,int pickerSlot){
         if(reminderDialog!=null&&reminderDialog.isShowing())return;reminderDraft=draft.clone();
