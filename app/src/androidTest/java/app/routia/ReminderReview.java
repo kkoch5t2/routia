@@ -22,6 +22,11 @@ final class ReminderReview {
     ReminderReview(Instrumentation i){this.i=i;views=new ReportReview(i);}
     void check(boolean ok,String label){n++;if(!ok)throw new AssertionError(label);}
     void await(BooleanSupplier ready,String label){long until=SystemClock.uptimeMillis()+3000;while(!ready.getAsBoolean()&&SystemClock.uptimeMillis()<until)SystemClock.sleep(20);check(ready.getAsBoolean(),label);i.waitForIdleSync();}
+    void keepDailyHidden(Context context,String label){
+        long deadline=SystemClock.uptimeMillis()+300;
+        while(daily(context)==null&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(20);
+        check(daily(context)==null,label);
+    }
     View root(Activity a){return a.getWindow().getDecorView();}
     View window(MainActivity a){return a.reminderDialog.getWindow().getDecorView();}
     void click(View view){check(view!=null,"control exists");i.runOnMainSync(view::performClick);i.waitForIdleSync();}
@@ -94,13 +99,20 @@ final class ReminderReview {
         int[] reverse=ten.clone();for(int at=0;at<reverse.length/2;at++){int tmp=reverse[at];reverse[at]=reverse[reverse.length-1-at];reverse[reverse.length-1-at]=tmp;}Reminders.saveTimes(c,reverse);check(Reminders.revision(c)==revision,"unchanged chronological times do not reset revision");
         NotificationManager nm=c.getSystemService(NotificationManager.class);i.runOnMainSync(()->Reminders.showDaily(c,9,true));await(()->daily(c)!=null,"tenth reminder can display");Notification last=daily(c);
         check(last.extras.getCharSequence(Notification.EXTRA_TITLE).toString().contains("締め切り")&&last.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("最後"),"last slot uses final reminder copy");
-        check(last.actions.length==2,"check habit quick recording actions remain");nm.cancel("daily",1);i.runOnMainSync(()->Reminders.showDaily(c,9,true));check(daily(c)==null,"same daily slot cannot alert twice");
+        check(last.actions.length==2,"check habit quick recording actions remain");
+        nm.cancel("daily",1);
+        await(()->daily(c)==null,"the last reminder was dismissed");
+        i.runOnMainSync(()->Reminders.showDaily(c,9,true));
+        keepDailyHidden(c,"same daily slot cannot alert twice");
         i.runOnMainSync(()->Reminders.showDaily(c,6,false));await(()->daily(c)!=null,"middle reminder displayed");check(daily(c).extras.getCharSequence(Notification.EXTRA_TITLE).toString().startsWith("7回目"),"middle notification counts beyond three correctly");
-        Reminders.saveTimes(c,new int[]{720});for(PendingIntent pending:alarms)cancelled(pending);check(daily(c)==null,"schedule change removes existing notification without alert");
+        Reminders.saveTimes(c,new int[]{720});for(PendingIntent pending:alarms)cancelled(pending);await(()->daily(c)==null,"schedule change removes existing notification without alert");
         i.runOnMainSync(()->new ReminderReceiver().onReceive(c,new Intent(Reminders.DAILY).putExtra("slot",9).putExtra("revision",revision).putExtra("date",today.toString())));check(daily(c)==null,"old high slot is rejected after count reduction");
         i.runOnMainSync(()->Reminders.showDaily(c,9,false));check(daily(c)==null,"out of range slot never indexes schedule");
         i.runOnMainSync(()->Reminders.showDaily(c,0,false));await(()->daily(c)!=null,"single reminder displayed");check(!daily(c).extras.getCharSequence(Notification.EXTRA_TITLE).toString().contains("締め切り"),"single reminder uses gentle copy");
-        store.record(habit,today,1,false);i.runOnMainSync(()->Reminders.showDaily(c,0,false));check(daily(c)==null,"all completed habits suppress reminders");store.record(habit,today,0,true);
+        store.record(habit,today,1,false);
+        i.runOnMainSync(()->Reminders.showDaily(c,0,false));
+        await(()->daily(c)==null,"all completed habits suppress reminders");
+        store.record(habit,today,0,true);
         Reminders.saveTimes(c,new int[0]);check(Reminders.times(c).length==0&&Reminders.timesLabel(c).equals("通知オフ"),"zero is persisted notification off");for(int slot=0;slot<10;slot++)check(existing(c,slot,Reminders.revision(c))==null,"off leaves no daily alarm operation");
         i.runOnMainSync(()->Reminders.showDaily(c,0,false));check(daily(c)==null,"zero schedule never notifies");
         Reminders.saveTimes(c,ReminderTimes.defaults());
