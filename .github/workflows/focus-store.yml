@@ -1,4 +1,4 @@
-name: Android emulator regressions
+name: Android PR checks
 
 on: pull_request
 
@@ -6,6 +6,28 @@ permissions:
   contents: read
 
 jobs:
+  java-and-lint:
+    name: Java tests and Android Lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out PR
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Run Java domain tests
+        run: bash scripts/test-domain.sh
+
+      - name: Run Android Lint for the release variant
+        run: ./gradlew --no-daemon :app:lintRelease
+
   focus-store:
     name: Test overnight timer records
     runs-on: ubuntu-24.04
