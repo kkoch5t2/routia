@@ -1,4 +1,4 @@
-name: Android emulator regressions
+name: Android PR checks
 
 on: pull_request
 
@@ -7,7 +7,7 @@ permissions:
 
 jobs:
   focus-store:
-    name: Test overnight timer records
+    name: Java tests, Android Lint, and emulator tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -22,8 +22,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Run Java domain tests
+        run: bash scripts/test-domain.sh
+
       - name: Build QA and test APKs
         run: ./gradlew --no-daemon -ProutiaReportQa :app:assembleDebug :app:assembleDebugAndroidTest
+
+      - name: Run Android Lint for the release variant
+        run: ./gradlew --no-daemon :app:lintRelease
 
       - name: Enable hardware acceleration for the emulator
         run: |
