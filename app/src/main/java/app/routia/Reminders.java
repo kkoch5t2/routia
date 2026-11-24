@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import java.time.*;
 import java.util.*;
 
@@ -45,6 +46,15 @@ public final class Reminders {
         c.getSystemService(NotificationManager.class).createNotificationChannel(channel);
     }
     public static boolean allowed(Context c) { return (Build.VERSION.SDK_INT<33||c.checkSelfPermission("android.permission.POST_NOTIFICATIONS")==PackageManager.PERMISSION_GRANTED)&&c.getSystemService(NotificationManager.class).areNotificationsEnabled(); }
+    static boolean channelBlocked(Context c) {
+        NotificationChannel channel=c.getSystemService(NotificationManager.class).getNotificationChannel(CHANNEL);
+        return channel!=null&&channel.getImportance()==NotificationManager.IMPORTANCE_NONE;
+    }
+    static Intent channelSettings(Context c) {
+        return new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE,c.getPackageName())
+            .putExtra(Settings.EXTRA_CHANNEL_ID,CHANNEL);
+    }
     public static boolean exact(Context c) { return Build.VERSION.SDK_INT<31||c.getSystemService(AlarmManager.class).canScheduleExactAlarms(); }
     private static PendingIntent legacy(Context c,long id) {
         Intent i=new Intent(c,ReminderReceiver.class).setData(Uri.parse("routia://reminder/"+id)).putExtra("habit",id);
@@ -88,7 +98,7 @@ public final class Reminders {
     // Compatibility entry point, used by existing widget/integration checks.
     public static void show(Context c,Store.Habit h) {showDaily(c,0,false);}
     static synchronized void showDaily(Context c,int slot,boolean scheduled) {
-        int count=times(c).length;if(slot<0||slot>=count||!allowed(c))return;
+        int count=times(c).length;if(slot<0||slot>=count||!allowed(c)||channelBlocked(c))return;
         int stage=ReminderTimes.stage(slot,count);boolean last=slot==count-1;
         LocalDate day=LocalDate.now();Store store=Store.get(c);
         List<Store.Habit> undone=new ArrayList<>();for(Store.Habit h:store.habits())if(store.level(h.id(),day)==0)undone.add(h);
