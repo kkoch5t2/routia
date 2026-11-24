@@ -1,5 +1,7 @@
 package app.routia;
 
+import android.accessibilityservice.AccessibilityService;
+import android.accessibilityservice.AccessibilityServiceInfo;
 import android.app.*;
 import android.content.*;
 import android.graphics.*;
@@ -7,6 +9,7 @@ import android.net.Uri;
 import android.os.*;
 import android.service.notification.StatusBarNotification;
 import android.view.*;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.*;
 import java.time.*;
 import java.util.*;
@@ -28,6 +31,52 @@ final class ReminderReview {
     void save(MainActivity a){click(views.find(window(a),"回数・時刻を保存"));}
     PendingIntent existing(Context c,int slot,int revision){Intent intent=new Intent(c,ReminderReceiver.class).setAction(Reminders.DAILY).setData(Uri.parse(revision==0?"routia://daily/"+slot:"routia://daily/"+revision+"/"+slot));return PendingIntent.getBroadcast(c,slot,intent,PendingIntent.FLAG_NO_CREATE|PendingIntent.FLAG_IMMUTABLE);}
     Notification daily(Context c){for(StatusBarNotification s:c.getSystemService(NotificationManager.class).getActiveNotifications())if("daily".equals(s.getTag()))return s.getNotification();return null;}
+    private AccessibilityNodeInfo channelSwitch(UiAutomation automation){
+        AccessibilityNodeInfo root=automation.getRootInActiveWindow();
+        if(root==null||!"com.android.settings".contentEquals(root.getPackageName()))return null;
+        List<AccessibilityNodeInfo> switches=root.findAccessibilityNodeInfosByViewId("android:id/switch_widget");
+        return switches.isEmpty()?null:switches.get(0);
+    }
+    private void setChannelBlocked(Context c,UiAutomation automation,boolean blocked){
+        await(()->channelSwitch(automation)!=null,"Android channel settings opened");
+        AccessibilityNodeInfo toggle=channelSwitch(automation);
+        check(toggle.isChecked()==blocked,"channel switch shows its original state");
+        AccessibilityNodeInfo control=toggle;
+        while(control!=null&&!control.isClickable())control=control.getParent();
+        check(control!=null&&control.performAction(AccessibilityNodeInfo.ACTION_CLICK),"Android channel switch toggled");
+        await(()->Reminders.channelBlocked(c)==blocked,"Android saved the channel state");
+        check(automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK),"return to Routia");
+        await(()->a11yInApp(automation,c),"Routia returned to foreground");
+    }
+    private boolean a11yInApp(UiAutomation automation,Context c){
+        AccessibilityNodeInfo root=automation.getRootInActiveWindow();
+        return root!=null&&c.getPackageName().contentEquals(root.getPackageName());
+    }
+    private void reviewChannelSettings(MainActivity a,Context c){
+        String blockedStatus="端末設定で「習慣のリマインダー」がオフです。";
+        String todayAction="リマインダーが無効です · 端末設定";
+        UiAutomation automation=i.getUiAutomation();
+        AccessibilityServiceInfo info=automation.getServiceInfo();
+        info.flags|=AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+        automation.setServiceInfo(info);
+        int[] times=Reminders.times(c);
+        check(!Reminders.channelBlocked(c)&&views.find(root(a),blockedStatus)==null,"enabled channel has no blocked message");
+        click(views.find(root(a),"リマインダーの端末設定"));
+        setChannelBlocked(c,automation,true);
+        await(()->views.find(root(a),blockedStatus)!=null,"Settings explains the blocked channel");
+        check(Reminders.allowed(c),"blocking the reminder channel leaves app notifications enabled");
+        i.runOnMainSync(()->Reminders.showDaily(c,0,true));
+        check(daily(c)==null,"blocked channel does not post the reminder");
+        click(views.findTag(root(a),"nav_today"));
+        click(views.find(root(a),todayAction));
+        setChannelBlocked(c,automation,false);
+        await(()->views.find(root(a),todayAction)==null,"Today removes the warning after re-enabling");
+        i.runOnMainSync(()->Reminders.showDaily(c,0,true));
+        await(()->daily(c)!=null,"same reminder slot can deliver after re-enabling");
+        c.getSystemService(NotificationManager.class).cancel("daily",1);
+        click(views.findTag(root(a),"nav_settings"));
+        check(views.find(root(a),blockedStatus)==null&&Arrays.equals(times,Reminders.times(c)),"Settings clears the warning and keeps the schedule");
+    }
     void cancelled(PendingIntent pending){try{pending.send();throw new AssertionError("Old alarm can still fire");}catch(PendingIntent.CanceledException expected){n++;}}
     void shot(Dialog d,String name)throws Exception{Bitmap[] b={null};i.runOnMainSync(()->{View v=d.getWindow().getDecorView();b[0]=Bitmap.createBitmap(v.getWidth(),v.getHeight(),Bitmap.Config.ARGB_8888);v.draw(new Canvas(b[0]));});try(FileOutputStream out=new FileOutputStream(new File(i.getTargetContext().getExternalFilesDir(null),"report-"+name+".png"))){b[0].compress(Bitmap.CompressFormat.PNG,100,out);}b[0].recycle();}
     int run()throws Exception{
@@ -55,7 +104,9 @@ final class ReminderReview {
         Reminders.saveTimes(c,new int[0]);check(Reminders.times(c).length==0&&Reminders.timesLabel(c).equals("通知オフ"),"zero is persisted notification off");for(int slot=0;slot<10;slot++)check(existing(c,slot,Reminders.revision(c))==null,"off leaves no daily alarm operation");
         i.runOnMainSync(()->Reminders.showDaily(c,0,false));check(daily(c)==null,"zero schedule never notifies");
         Reminders.saveTimes(c,ReminderTimes.defaults());
-        MainActivity a=(MainActivity)i.startActivitySync(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));i.waitForIdleSync();click(views.findTag(root(a),"nav_settings"));open(a);
+        MainActivity a=(MainActivity)i.startActivitySync(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));i.waitForIdleSync();click(views.findTag(root(a),"nav_settings"));
+        reviewChannelSettings(a,c);
+        open(a);
         check(a.reminderDraft.length==5&&views.findTag(window(a),"reminder_time_4")!=null&&views.findTag(window(a),"reminder_time_5")==null,"editor starts with five time rows");int before=Reminders.revision(c);count(a,10);
         check(views.findTag(window(a),"reminder_time_9")!=null,"all ten time controls exist");shot(a.reminderDialog,"reminders-ten-top");
         i.runOnMainSync(()->a.reminderDialog.formScroll.fullScroll(View.FOCUS_DOWN));i.waitForIdleSync();shot(a.reminderDialog,"reminders-ten-bottom");

@@ -1,4 +1,4 @@
-name: Overnight timer regression
+name: Android emulator regressions
 
 on: pull_request
 
@@ -31,10 +31,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run the storage regression suite on Android 15
+      - name: Run timer and reminder regressions on Android 15
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 35
           arch: x86_64
           target: google_apis
-          script: bash .github/scripts/test-focus-store.sh
+          script: bash .github/scripts/test-emulator-regressions.sh

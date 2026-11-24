@@ -106,7 +106,13 @@ public class MainActivity extends Activity {
         if(habits.size()<capacity){if(habits.isEmpty()){LinearLayout c=card(content);c.addView(new Mascot(this,Mascot.WELCOME),new LinearLayout.LayoutParams(-1,dp(100)));c.addView(text("こんにちは、ルティです。",21,INK,true));space(c,10);sub(c,"小さな一歩を、未来の蓄えに。\nまずはそのまま習慣をつくれます。内容はあとから変えても大丈夫。");space(c,18);c.addView(button("最初の習慣をつくる",true,()->editor(null,null)));space(c,9);c.addView(button("例からつくる · 英語",false,()->editor(null,"英語を聞く")));}else content.addView(button("＋ 習慣を追加  ·  "+habits.size()+" / "+capacity,false,()->editor(null,null)));}
         else sub(content,"登録済み "+habits.size()+"個 / 上限 "+capacity+"個");
         space(content,16);int tip=displayedDay.getDayOfYear()%Learn.TIPS.length;content.addView(button(Learn.TIPS[tip][0],false,()->Learn.show(this,tip)));
-        if(!habits.isEmpty()&&notify.length>0&&!Reminders.allowed(this)){space(content,12);content.addView(button("通知が無効です · 許可する",false,this::notificationPermission));}
+        if(!habits.isEmpty()&&notify.length>0){
+            if(!Reminders.allowed(this)){
+                space(content,12);content.addView(button("通知が無効です · 許可する",false,this::notificationPermission));
+            }else if(Reminders.channelBlocked(this)){
+                space(content,12);content.addView(button("リマインダーが無効です · 端末設定",false,this::openReminderChannelSettings));
+            }
+        }
     }
     private void habitCard(Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
@@ -488,7 +494,14 @@ public class MainActivity extends Activity {
     private void settings(){
         header("MAKE IT YOURS","続けやすさを、整える。","通知も記録も、続けやすい形に。\n通常の記録は、この端末の中に。");
         LinearLayout appearance=card(content);appearance.addView(text("🎨 アプリの見た目",20,INK,true));space(appearance,14);appearance.addView(button("アプリの背景色 · "+AppColors.name(AppColors.selected(this)),false,()->backgroundColors(false)));
-        LinearLayout notification=card(content);notification.addView(text("🔔 習慣のリマインダー",20,INK,true));space(notification,12);int reminderCount=Reminders.times(this).length;notification.addView(text(reminderCount==0?"通知オフ":"1日 "+reminderCount+"回",21,GREEN,true));space(notification,6);sub(notification,Reminders.timesLabel(this));space(notification,10);sub(notification,"未達成の習慣をまとめてお知らせ。すべて達成したら、その日の通知はお休みです。");space(notification,18);notification.addView(button("回数・時刻を変更",true,this::notificationTimes));space(notification,12);notification.addView(button(Reminders.allowed(this)?"通知の許可・端末設定":"通知を許可する",false,this::notificationPermission));space(notification,14);sub(notification,Reminders.exact(this)?"指定時刻のアラームが許可されています。":"省電力制御などにより、通知が遅れる場合があります。");
+        LinearLayout notification=card(content);notification.addView(text("🔔 習慣のリマインダー",20,INK,true));space(notification,12);int reminderCount=Reminders.times(this).length;notification.addView(text(reminderCount==0?"通知オフ":"1日 "+reminderCount+"回",21,GREEN,true));space(notification,6);sub(notification,Reminders.timesLabel(this));space(notification,10);sub(notification,"未達成の習慣をまとめてお知らせ。すべて達成したら、その日の通知はお休みです。");space(notification,18);notification.addView(button("回数・時刻を変更",true,this::notificationTimes));space(notification,12);
+        if(Reminders.allowed(this)){
+            if(reminderCount>0&&Reminders.channelBlocked(this)){
+                sub(notification,"端末設定で「習慣のリマインダー」がオフです。");space(notification,8);
+            }
+            notification.addView(button("リマインダーの端末設定",false,this::openReminderChannelSettings));
+        }else notification.addView(button("通知を許可する",false,this::notificationPermission));
+        space(notification,14);sub(notification,Reminders.exact(this)?"指定時刻のアラームが許可されています。":"省電力制御などにより、通知が遅れる場合があります。");
         if(Build.VERSION.SDK_INT>=31&&!Reminders.exact(this)){space(notification,12);notification.addView(button("アラームとリマインダーを許可",false,()->{try{startActivity(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+getPackageName())));}catch(ActivityNotFoundException e){Toast.makeText(this,"端末の設定から許可してください",Toast.LENGTH_LONG).show();}}));}
         LinearLayout feedback=card(content);feedback.addView(text("🎉 達成したとき",20,INK,true));settingSwitch(feedback,"📳 振動","haptics",true);settingSwitch(feedback,"🔊 短い効果音","sound",false);sub(feedback,"紙吹雪・達成カードで、その一歩をお祝いします。音や振動は端末設定に従います。");
         LinearLayout analysis=card(content);analysis.addView(text("💰️ 継続レビュー",20,INK,true));space(analysis,10);
@@ -523,6 +536,10 @@ public class MainActivity extends Activity {
         if(reminderDialog==null||!reminderDialog.isShowing()||index<0||index>=reminderDraft.length)return;
         reminderPickerSlot=index;TimePickerDialog picker=new TimePickerDialog(this,(v,hour,minute)->{if(reminderDraft!=null&&index<reminderDraft.length){reminderDraft[index]=hour*60+minute;reminderRowsRefresh.run();}},reminderDraft[index]/60,reminderDraft[index]%60,true);
         reminderTimePicker=picker;picker.setTitle((index+1)+"回目の通知時刻");picker.setOnDismissListener(d->{if(reminderTimePicker==picker){reminderTimePicker=null;reminderPickerSlot=-1;}});picker.show();if(state!=null)picker.onRestoreInstanceState(state);
+    }
+    private void openReminderChannelSettings(){
+        try{startActivity(Reminders.channelSettings(this));}
+        catch(ActivityNotFoundException e){notificationPermission();}
     }
     private void notificationPermission(){if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!Feedback.prefs(this).getBoolean("notificationAsked",false)){Feedback.prefs(this).edit().putBoolean("notificationAsked",true).apply();requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},200);return;}try{startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,getPackageName()));}catch(ActivityNotFoundException e){startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName())));}}
 }
