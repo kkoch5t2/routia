@@ -77,6 +77,11 @@ final class HabitHistoryCsvTest {
                 "Selecting a habit alone uses its ID");
             check(export(store,checkHabit,HabitHistoryCsv.Period.LAST_MONTH,date).equals(header),
                 "A filtered window with no records exports only the header");
+            check(store.countHistoryCsv(all)==6
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(time,HabitHistoryCsv.Period.THIS_MONTH,date))==3
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(0,HabitHistoryCsv.Period.LAST_MONTH,date))==1
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(checkHabit,HabitHistoryCsv.Period.LAST_MONTH,date))==0,
+                "The CSV preview count matches the rows exported with each selection");
             LocalDate january = LocalDate.of(2027,1,1);
             db.execSQL("INSERT INTO records(habit_id,day,level) VALUES(?,?,?)",
                 new Object[]{checkHabit,"2026-12-31",Rules.MINIMUM});
