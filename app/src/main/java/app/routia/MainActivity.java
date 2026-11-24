@@ -27,6 +27,7 @@ public class MainActivity extends Activity {
     private int BG,INK,GREEN,MUTED,PALE;
     private LinearLayout root,content;private Store store;private int page;private boolean registered;
     private LocalDate displayedDay;
+    private boolean showOnlyUnfinished;
     private final Map<Long,HistorySelection> historySelections=new HashMap<>();
     private long chartHabit=-1,reportTask;
     private int reportYear,reportMonth,renderVersion;
@@ -57,6 +58,7 @@ public class MainActivity extends Activity {
     private void header(String eyebrow,String title,String body){sub(content,eyebrow);space(content,7);content.addView(text(title,28,INK,true));space(content,10);sub(content,body);space(content,22);}
     @Override public void onCreate(Bundle b){AppColors.applyTheme(this);super.onCreate(b);BG=Ui.surface(this,Ui.BG);INK=Ui.ink(this,Ui.INK);GREEN=Ui.ink(this,Ui.GREEN);MUTED=Ui.ink(this,Ui.MUTED);PALE=Ui.surface(this,Ui.PALE);store=Store.get(this);if(b!=null){page=b.getInt("page");resumeScrollY=b.getInt("scroll");reportTask=b.getLong("report_task",0);reportYear=b.getInt("report_year",0);reportMonth=b.getInt("report_month",0);reportPage=Math.max(0,b.getLong("report_page",0));}
         if (b != null) {
+            showOnlyUnfinished = b.getBoolean("today_unfinished");
             historyCsvHabitId = b.getLong("history_csv_habit");
             historyCsvPeriod = HabitHistoryCsv.Period.valueOf(b.getString("history_csv_period","ALL"));
             pendingHistoryCsv = HabitHistoryCsv.Selection.restore(b.getBundle("history_csv_pending"));
@@ -76,6 +78,7 @@ public class MainActivity extends Activity {
         else Ui.show(Ui.sheet(this,"FOCUS COMPLETE","日付をまたいで、完走。","集中時間はタイマーを開始した日の達成に加算しました。今日の達成には加算していません。","OK",null),this);
     }
     @Override public void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);
+        b.putBoolean("today_unfinished",showOnlyUnfinished);
         b.putLong("history_csv_habit",historyCsvHabitId);
         b.putString("history_csv_period",historyCsvPeriod.name());
         if (pendingHistoryCsv != null) b.putBundle("history_csv_pending",pendingHistoryCsv.saveState());
@@ -107,7 +110,13 @@ public class MainActivity extends Activity {
         root.addView(nav);root.requestApplyInsets();
     }
     private void today(){
-        java.util.List<Store.Habit> habits=store.habits();int capacity=Rules.MAX_HABITS,done=0;for(Store.Habit h:habits)if(store.level(h.id(),displayedDay)>0)done++;
+        List<Store.Habit> habits = store.habits();
+        List<Store.Habit> unfinished = new ArrayList<>();
+        for (Store.Habit habit : habits) {
+            if (store.level(habit.id(),displayedDay) == 0) unfinished.add(habit);
+        }
+        int capacity = Rules.MAX_HABITS;
+        int done = habits.size() - unfinished.size();
         boolean all=!habits.isEmpty()&&done==habits.size();int hour=LocalTime.now().getHour();int minute=hour*60+LocalTime.now().getMinute();int[] notify=Reminders.times(this);int reminderStage=ReminderTimes.stageAt(minute,notify);int accent=all?GREEN:reminderStage>=2?0xffAD493D:reminderStage==1?0xffA66B29:GREEN;
         header("SMALL STEPS. REAL PROGRESS.",all?"今日の自分に、拍手。":reminderStage>=2?"今日の一歩、まだ間に合う。":"やることを、ひとつずつ。",all?"ミニ目標も、しっかり成功。\nここまでの積み重ねは、消えません。":"きっかけがなくても、始められる。\nまずは「何をやるか」だけ決めよう。");
         if(!habits.isEmpty()){
@@ -116,7 +125,11 @@ public class MainActivity extends Activity {
             sub(summary,all?"このあとのリマインダーはお休みです。":notify.length==0?"リマインダーはオフです。":reminderStage>=2?"今日は24:00で区切ります。ミニ目標からでも始めよう。":"今日のお知らせ  "+Reminders.timesLabel(this));
         }
         if(Focus.exists(this)){LinearLayout f=card(content);long seconds=(Focus.remaining(this)+999)/1000;boolean paused=Focus.paused(this);f.addView(text(paused?"⏸ タイマーを一時停止中":"⏱ 集中タイマーが進行中",19,INK,true));space(f,8);sub(f,"残り "+seconds/60+"分 "+seconds%60+"秒 · "+(paused?"休止中の時間は加算しません":"続きから戻れます"));space(f,12);f.addView(button(paused?"▶ 続きから再開":"⏱ タイマーへ戻る",true,()->startActivity(new Intent(this,FocusActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));space(f,8);f.addView(button("このタイマーを取り消す",false,()->Ui.show(Ui.sheet(this,"TIMER","タイマーを取り消す？","この回の残り時間を破棄します。完走済みの記録は残ります。","取り消す",()->{Focus.clear(this,true);render();}),this)));}
-        for(Store.Habit h:habits)habitCard(h);
+        if (!habits.isEmpty()) {
+            LinearLayout habitList = column();
+            content.addView(habitList);
+            renderTodayHabitList(habitList,habits,unfinished);
+        }
         if(habits.size()<capacity){if(habits.isEmpty()){LinearLayout c=card(content);c.addView(new Mascot(this,Mascot.WELCOME),new LinearLayout.LayoutParams(-1,dp(100)));c.addView(text("こんにちは、ルティです。",21,INK,true));space(c,10);sub(c,"小さな一歩を、未来の蓄えに。\nまずはそのまま習慣をつくれます。内容はあとから変えても大丈夫。");space(c,18);c.addView(button("最初の習慣をつくる",true,()->editor(null,null)));space(c,9);c.addView(button("例からつくる · 英語",false,()->editor(null,"英語を聞く")));}else content.addView(button("＋ 習慣を追加  ·  "+habits.size()+" / "+capacity,false,()->editor(null,null)));}
         else sub(content,"登録済み "+habits.size()+"個 / 上限 "+capacity+"個");
         space(content,16);int tip=displayedDay.getDayOfYear()%Learn.TIPS.length;content.addView(button(Learn.TIPS[tip][0],false,()->Learn.show(this,tip)));
@@ -128,9 +141,37 @@ public class MainActivity extends Activity {
             }
         }
     }
-    private void habitCard(Store.Habit h){
+    private void renderTodayHabitList(LinearLayout list,List<Store.Habit> habits,List<Store.Habit> unfinished) {
+        list.removeAllViews();
+        LinearLayout filters = row();
+        list.addView(filters);
+        todayHabitFilter(filters,list,"すべて",false,habits,unfinished);
+        todayHabitFilter(filters,list,"未達成のみ",true,habits,unfinished);
+        space(list,10);
+        if (showOnlyUnfinished && unfinished.isEmpty()) {
+            LinearLayout empty = card(list);
+            sub(empty,"今日の未達成の習慣はありません。");
+        }
+        for (Store.Habit habit : showOnlyUnfinished ? unfinished : habits) habitCard(list,habit);
+    }
+
+    private void todayHabitFilter(LinearLayout filters,LinearLayout list,String label,boolean unfinishedOnly,
+            List<Store.Habit> habits,List<Store.Habit> unfinished) {
+        boolean selected = showOnlyUnfinished == unfinishedOnly;
+        TextView toggle = button(label,selected,() -> {
+            if (showOnlyUnfinished == unfinishedOnly) return;
+            showOnlyUnfinished = unfinishedOnly;
+            renderTodayHabitList(list,habits,unfinished);
+        });
+        toggle.setSelected(selected);
+        LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(0,-2,1);
+        position.setMargins(dp(3),0,dp(3),0);
+        filters.addView(toggle,position);
+    }
+
+    private void habitCard(LinearLayout parent,Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
-        LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
+        LinearLayout c=card(parent),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
         String description=store.description(h.id());
         if(!description.isEmpty()){
             sectionHeading(c,"やることの詳細");
