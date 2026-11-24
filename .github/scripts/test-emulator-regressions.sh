@@ -22,3 +22,4 @@ run_suite() {
 
 run_suite focus-store 'isolated ticket/midnight-timer'
 run_suite reminders 'reminder count/time/alarm/UI'
+run_suite csv-export 'habit history CSV'
