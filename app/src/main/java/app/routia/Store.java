@@ -150,6 +150,11 @@ public final class Store extends SQLiteOpenHelper {
             while(c.moveToNext())a.add(new Entry(LocalDate.parse(c.getString(0)),c.getInt(1),c.isNull(2)?null:c.getDouble(2),c.getString(3),c.getString(4)));
         }return a;
     }
+    long countHabitRecords(long habitId) {
+        return DatabaseUtils.longForQuery(getReadableDatabase(),
+            "SELECT COUNT(*) FROM records WHERE habit_id = ?",new String[]{Long.toString(habitId)});
+    }
+
     private record CsvHistoryQuery(String source,String[] arguments) {}
 
     private static CsvHistoryQuery csvHistoryQuery(HabitHistoryCsv.Selection selection) {
