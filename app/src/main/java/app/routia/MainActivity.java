@@ -240,9 +240,41 @@ public class MainActivity extends Activity {
         space(box,10);box.addView(button("モデル・金額・APIの共通設定",false,()->{d.dismiss();openReportSettings();}));
         space(box,28);Ui.divider(box);space(box,24);box.addView(text("習慣の削除",16,Ui.RED,true));space(box,8);sub(box,"以下の操作には確認画面を表示します。");
 
-        space(box,16);box.addView(Ui.danger(this,"この習慣を削除",()->{if(Focus.exists(this)&&Focus.prefs(this).getLong("habit",-1)==h.id()){Toast.makeText(this,"タイマーを完了または取り消してから削除してください",Toast.LENGTH_LONG).show();return;}Ui.show(Ui.sheet(this,"","この習慣を削除する？","「"+h.goal()+"」の達成・数値・メモ・集中履歴を削除します。元には戻せません。保存したAIレポートも削除します。","削除する",()->{Reminders.cancel(this,h.id());store.delete(h.id());ReportSettings.prefs(this).edit().remove("habit_enabled_"+h.id()).remove("habit_from_"+h.id()).apply();ReportJob.schedule(this);try(ReportStore reports=new ReportStore(this)){reports.dropHabit(h.id());}Reminders.all(this);HabitWidget.update(this);d.dismiss();render();}),this);}));
+        space(box,16);box.addView(Ui.danger(this,"この習慣を削除",() -> confirmHabitDeletion(h,d)));
         space(box,28);box.addView(button("閉じる",false,d::dismiss));ScrollView scroll=new ScrollView(this);scroll.addView(box);d.setContentView(scroll);d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);Ui.show(d,this);
     }
+    private void confirmHabitDeletion(Store.Habit habit,Dialog management) {
+        if (Focus.exists(this) && Focus.prefs(this).getLong("habit",-1)==habit.id()) {
+            Toast.makeText(this,"タイマーを完了または取り消してから削除してください",Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        long count;
+        try {
+            count = store.countHabitRecords(habit.id());
+        } catch (android.database.sqlite.SQLiteException failure) {
+            Toast.makeText(this,"記録件数を確認できませんでした。もう一度お試しください。",Toast.LENGTH_LONG).show();
+            return;
+        }
+        String message = "「" + habit.goal() + "」の日々の記録 " + count + " 件（達成・数値・メモ）を削除します。"
+            + "\n集中履歴と保存済みの継続レビューも削除します。元には戻せません。";
+        Ui.show(Ui.sheet(this,"","この習慣を削除する？",message,"削除する",() -> {
+            Reminders.cancel(this,habit.id());
+            store.delete(habit.id());
+            ReportSettings.prefs(this).edit()
+                .remove("habit_enabled_" + habit.id())
+                .remove("habit_from_" + habit.id()).apply();
+            ReportJob.schedule(this);
+            try (ReportStore reports = new ReportStore(this)) {
+                reports.dropHabit(habit.id());
+            }
+            Reminders.all(this);
+            HabitWidget.update(this);
+            management.dismiss();
+            render();
+        }),this);
+    }
+
     private void mark(Store.Habit h,int level){try{Store.Result r=store.record(h.id(),LocalDate.now(),level,false);HabitWidget.update(this);Reminders.refreshVisible(this);render();if(r.changed()){Feedback.deliver(this,root,r.recovery(),Rules.feedback(r.recovery(),r.level()));if(r.level()>=Rules.FULL)Celebration.show(this,h,r.level(),r.recovery(),()->{page=1;render();});}}catch(IllegalArgumentException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}}
     private void correct(Store.Habit h){
         if(!store.metric(h.id()).kind().equals("check")){details(h);return;}
