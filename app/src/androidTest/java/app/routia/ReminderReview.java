@@ -82,6 +82,30 @@ final class ReminderReview {
         click(views.findTag(root(a),"nav_settings"));
         check(views.find(root(a),blockedStatus)==null&&Arrays.equals(times,Reminders.times(c)),"Settings clears the warning and keeps the schedule");
     }
+    private void reviewTodayFilter(MainActivity activity,Store store,long completedHabit){
+        LocalDate day = LocalDate.now();
+        store.record(completedHabit,day,Rules.MINIMUM,false);
+        String unfinishedName = "まだ記録していない習慣";
+        long unfinishedHabit = store.saveHabit(0,"",unfinishedName,"一歩","check",0,"");
+        String completedName = store.habit(completedHabit).goal();
+
+        click(views.findTag(root(activity),"nav_today"));
+        check(views.find(root(activity),"すべて").isSelected()
+            && views.find(root(activity),completedName)!=null
+            && views.find(root(activity),unfinishedName)!=null,"Today initially shows every habit");
+        click(views.find(root(activity),"未達成のみ"));
+        check(views.find(root(activity),"未達成のみ").isSelected()
+            && views.find(root(activity),completedName)==null
+            && views.find(root(activity),unfinishedName)!=null,"A minimum achievement is hidden by the filter");
+
+        store.record(unfinishedHabit,day,Rules.MINIMUM,false);
+        click(views.findTag(root(activity),"nav_today"));
+        check(views.find(root(activity),"今日の未達成の習慣はありません。")!=null
+            && views.find(root(activity),"すべて")!=null,"All-complete state keeps the way back to every habit");
+        click(views.find(root(activity),"すべて"));
+        check(views.find(root(activity),completedName)!=null
+            && views.find(root(activity),unfinishedName)!=null,"Showing all reveals both completed habits again");
+    }
     void cancelled(PendingIntent pending){try{pending.send();throw new AssertionError("Old alarm can still fire");}catch(PendingIntent.CanceledException expected){n++;}}
     void shot(Dialog d,String name)throws Exception{Bitmap[] b={null};i.runOnMainSync(()->{View v=d.getWindow().getDecorView();b[0]=Bitmap.createBitmap(v.getWidth(),v.getHeight(),Bitmap.Config.ARGB_8888);v.draw(new Canvas(b[0]));});try(FileOutputStream out=new FileOutputStream(new File(i.getTargetContext().getExternalFilesDir(null),"report-"+name+".png"))){b[0].compress(Bitmap.CompressFormat.PNG,100,out);}b[0].recycle();}
     int run()throws Exception{
@@ -129,6 +153,8 @@ final class ReminderReview {
         MainActivity restored=(MainActivity)views.recreatePage(a);await(()->restored.reminderDialog!=null&&restored.reminderTimePicker!=null&&restored.reminderTimePicker.isShowing(),"editor and picker restore after rotation");
         TimePicker restoredPicker=(TimePicker)views.findType(restored.reminderTimePicker.getWindow().getDecorView(),TimePicker.class);check(restored.reminderDraft.length==3&&restored.reminderDraft[0]==435&&restoredPicker.getHour()==16&&restoredPicker.getMinute()==45,"unsaved count/time and picker draft survive recreation");
         i.runOnMainSync(()->restored.reminderTimePicker.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());i.waitForIdleSync();click(views.find(window(restored),"戻る"));check(Reminders.times(c).length==10,"Back discards unsaved count and times");
-        open(restored);count(restored,0);check(views.findTag(window(restored),"reminder_time_0")==null,"zero count hides time rows");save(restored);check(Reminders.times(c).length==0,"editor saves off");click(views.findTag(root(restored),"nav_today"));check(views.find(root(restored),"リマインダーはオフです。")!=null,"Today handles zero count without fixed indices");click(views.findTag(root(restored),"nav_settings"));open(restored);click(views.find(window(restored),"初期の回数・時刻に戻す"));check(Arrays.equals(restored.reminderDraft,ReminderTimes.defaults()),"reset restores requested five times");save(restored);check(Arrays.equals(Reminders.times(c),ReminderTimes.defaults()),"reset persists new defaults");i.runOnMainSync(restored::finish);i.waitForIdleSync();return n;
+        open(restored);count(restored,0);check(views.findTag(window(restored),"reminder_time_0")==null,"zero count hides time rows");save(restored);check(Reminders.times(c).length==0,"editor saves off");click(views.findTag(root(restored),"nav_today"));check(views.find(root(restored),"リマインダーはオフです。")!=null,"Today handles zero count without fixed indices");click(views.findTag(root(restored),"nav_settings"));open(restored);click(views.find(window(restored),"初期の回数・時刻に戻す"));check(Arrays.equals(restored.reminderDraft,ReminderTimes.defaults()),"reset restores requested five times");save(restored);check(Arrays.equals(Reminders.times(c),ReminderTimes.defaults()),"reset persists new defaults");
+        reviewTodayFilter(restored,store,habit);
+        i.runOnMainSync(restored::finish);i.waitForIdleSync();return n;
     }
 }

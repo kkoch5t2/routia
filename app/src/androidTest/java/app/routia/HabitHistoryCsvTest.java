@@ -41,7 +41,7 @@ final class HabitHistoryCsvTest {
 
             long time = store.saveHabit(0, "", "英語を聞く", "1分", "time", 15, "分");
             long checkHabit = store.saveHabit(0, "", "読む", "1ページ", "check", 0, "");
-            store.saveHabit(0, "", "未記録の習慣", "ひとつ", "check", 0, "");
+            long unrecorded = store.saveHabit(0, "", "未記録の習慣", "ひとつ", "check", 0, "");
             SQLiteDatabase db = store.getWritableDatabase();
             db.execSQL("UPDATE habits SET goal=? WHERE id=?", new Object[]{"英語,\"会話\"\n基礎", time});
             db.execSQL("UPDATE habits SET goal=? WHERE id=?", new Object[]{"　＝1+1", checkHabit});
@@ -77,6 +77,15 @@ final class HabitHistoryCsvTest {
                 "Selecting a habit alone uses its ID");
             check(export(store,checkHabit,HabitHistoryCsv.Period.LAST_MONTH,date).equals(header),
                 "A filtered window with no records exports only the header");
+            check(store.countHistoryCsv(all)==6
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(time,HabitHistoryCsv.Period.THIS_MONTH,date))==3
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(0,HabitHistoryCsv.Period.LAST_MONTH,date))==1
+                && store.countHistoryCsv(new HabitHistoryCsv.Selection(checkHabit,HabitHistoryCsv.Period.LAST_MONTH,date))==0,
+                "The CSV preview count matches the rows exported with each selection");
+            check(store.countHabitRecords(time)==5
+                && store.countHabitRecords(checkHabit)==1
+                && store.countHabitRecords(unrecorded)==0,
+                "The deletion preview counts only the selected habit's daily records");
             LocalDate january = LocalDate.of(2027,1,1);
             db.execSQL("INSERT INTO records(habit_id,day,level) VALUES(?,?,?)",
                 new Object[]{checkHabit,"2026-12-31",Rules.MINIMUM});

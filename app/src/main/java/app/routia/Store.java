@@ -2,6 +2,7 @@ package app.routia;
 
 import android.content.*;
 import android.database.Cursor;
+import android.database.DatabaseUtils;
 import android.database.sqlite.*;
 import java.io.IOException;
 import java.io.Writer;
@@ -149,9 +150,15 @@ public final class Store extends SQLiteOpenHelper {
             while(c.moveToNext())a.add(new Entry(LocalDate.parse(c.getString(0)),c.getInt(1),c.isNull(2)?null:c.getDouble(2),c.getString(3),c.getString(4)));
         }return a;
     }
-    void writeHistoryCsv(Writer output, HabitHistoryCsv.Selection selection) throws IOException {
-        StringBuilder query = new StringBuilder("SELECT r.day, h.goal, r.level, r.amount, r.unit"
-                + " FROM records r JOIN habits h ON h.id = r.habit_id WHERE 1 = 1");
+    long countHabitRecords(long habitId) {
+        return DatabaseUtils.longForQuery(getReadableDatabase(),
+            "SELECT COUNT(*) FROM records WHERE habit_id = ?",new String[]{Long.toString(habitId)});
+    }
+
+    private record CsvHistoryQuery(String source,String[] arguments) {}
+
+    private static CsvHistoryQuery csvHistoryQuery(HabitHistoryCsv.Selection selection) {
+        StringBuilder query = new StringBuilder(" FROM records r JOIN habits h ON h.id = r.habit_id WHERE 1 = 1");
         List<String> args = new ArrayList<>();
         if (selection.habitId() != 0) {
             query.append(" AND r.habit_id = ?");
@@ -163,9 +170,18 @@ public final class Store extends SQLiteOpenHelper {
             args.add(month.atDay(1).toString());
             args.add(month.plusMonths(1).atDay(1).toString());
         }
-        query.append(" ORDER BY r.day, r.habit_id");
+        return new CsvHistoryQuery(query.toString(),args.toArray(new String[0]));
+    }
 
-        try (Cursor rows = getReadableDatabase().rawQuery(query.toString(), args.toArray(new String[0]))) {
+    long countHistoryCsv(HabitHistoryCsv.Selection selection) {
+        CsvHistoryQuery query = csvHistoryQuery(selection);
+        return DatabaseUtils.longForQuery(getReadableDatabase(),"SELECT COUNT(*)" + query.source(),query.arguments());
+    }
+
+    void writeHistoryCsv(Writer output, HabitHistoryCsv.Selection selection) throws IOException {
+        CsvHistoryQuery query = csvHistoryQuery(selection);
+        String sql = "SELECT r.day, h.goal, r.level, r.amount, r.unit" + query.source() + " ORDER BY r.day, r.habit_id";
+        try (Cursor rows = getReadableDatabase().rawQuery(sql,query.arguments())) {
             HabitHistoryCsv.writeHeader(output);
             while (rows.moveToNext()) {
                 Double amount = rows.isNull(3) ? null : rows.getDouble(3);
