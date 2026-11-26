@@ -14,13 +14,18 @@ import android.text.InputFilter;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
+import java.io.IOException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntConsumer;
 
 public class MainActivity extends Activity {
     private static final int CREATE_HISTORY_CSV = 201;
+    private static final int CREATE_HABIT_BACKUP = 202;
+    private static final int RESTORE_HABIT_BACKUP = 203;
+    private static final AtomicBoolean BACKUP_IN_PROGRESS = new AtomicBoolean();
     private long historyCsvHabitId;
     private HabitHistoryCsv.Period historyCsvPeriod = HabitHistoryCsv.Period.ALL;
     private HabitHistoryCsv.Selection pendingHistoryCsv;
@@ -111,7 +116,7 @@ public class MainActivity extends Activity {
         root.addView(nav);root.requestApplyInsets();
     }
     private void today(){
-        List<Store.Habit> habits = store.habits();
+        List<Store.Habit> habits = todayHabits();
         List<Store.Habit> unfinished = new ArrayList<>();
         for (Store.Habit habit : habits) {
             if (store.level(habit.id(),displayedDay) == 0) unfinished.add(habit);
@@ -126,6 +131,10 @@ public class MainActivity extends Activity {
             sub(summary,all?"このあとのリマインダーはお休みです。":notify.length==0?"リマインダーはオフです。":reminderStage>=2?"今日は24:00で区切ります。ミニ目標からでも始めよう。":"今日のお知らせ  "+Reminders.timesLabel(this));
         }
         if(Focus.exists(this)){LinearLayout f=card(content);long seconds=(Focus.remaining(this)+999)/1000;boolean paused=Focus.paused(this);f.addView(text(paused?"⏸ タイマーを一時停止中":"⏱ 集中タイマーが進行中",19,INK,true));space(f,8);sub(f,"残り "+seconds/60+"分 "+seconds%60+"秒 · "+(paused?"休止中の時間は加算しません":"続きから戻れます"));space(f,12);f.addView(button(paused?"▶ 続きから再開":"⏱ タイマーへ戻る",true,()->startActivity(new Intent(this,FocusActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));space(f,8);f.addView(button("このタイマーを取り消す",false,()->Ui.show(Ui.sheet(this,"TIMER","タイマーを取り消す？","この回の残り時間を破棄します。完走済みの記録は残ります。","取り消す",()->{Focus.clear(this,true);render();}),this)));}
+        if (habits.size() > 1) {
+            content.addView(button("習慣を並び替える", false, this::editTodayHabitOrder));
+            space(content, 12);
+        }
         if (!habits.isEmpty()) {
             LinearLayout habitList = column();
             content.addView(habitList);
@@ -168,6 +177,80 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(0,-2,1);
         position.setMargins(dp(3),0,dp(3),0);
         filters.addView(toggle,position);
+    }
+
+    private static final String TODAY_HABIT_ORDER = "today_habit_order";
+
+    private List<Store.Habit> todayHabits() {
+        Map<String, Store.Habit> remaining = new LinkedHashMap<>();
+        for (Store.Habit habit : store.habits()) remaining.put(Long.toString(habit.id()), habit);
+
+        List<Store.Habit> ordered = new ArrayList<>();
+        String saved = getPreferences(MODE_PRIVATE).getString(TODAY_HABIT_ORDER, "");
+        for (String id : saved.split(",")) {
+            Store.Habit habit = remaining.remove(id);
+            if (habit != null) ordered.add(habit);
+        }
+        ordered.addAll(remaining.values());
+        return ordered;
+    }
+
+    private void editTodayHabitOrder() {
+        List<Store.Habit> draft = todayHabits();
+        if (draft.size() < 2) return;
+        LinearLayout form = column();
+        sub(form, "よく使う習慣を上に移動できます。");
+        space(form, 10);
+        List<TextView> names = new ArrayList<>();
+        List<TextView> upButtons = new ArrayList<>();
+        List<TextView> downButtons = new ArrayList<>();
+        Runnable refresh = () -> {
+            for (int index = 0; index < draft.size(); index++) {
+                String name = draft.get(index).goal();
+                names.get(index).setText(name);
+                upButtons.get(index).setContentDescription((index + 1) + "番目の「" + name + "」を上へ");
+                downButtons.get(index).setContentDescription((index + 1) + "番目の「" + name + "」を下へ");
+            }
+        };
+        for (int index = 0; index < draft.size(); index++) {
+            int position = index;
+            LinearLayout line = row();
+            TextView name = text("", 16, INK, true);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            names.add(name);
+            TextView up = button("↑", false, () -> {
+                Collections.swap(draft, position, position - 1);
+                refresh.run();
+            });
+            TextView down = button("↓", false, () -> {
+                Collections.swap(draft, position, position + 1);
+                refresh.run();
+            });
+            up.setEnabled(index > 0);
+            down.setEnabled(index < draft.size() - 1);
+            up.setAlpha(up.isEnabled() ? 1f : .4f);
+            down.setAlpha(down.isEnabled() ? 1f : .4f);
+            for (TextView arrow : new TextView[]{up, down}) {
+                arrow.setPadding(0, 0, 0, 0);
+                LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(dp(48), -2);
+                slot.leftMargin = dp(6);
+                line.addView(arrow, slot);
+            }
+            upButtons.add(up);
+            downButtons.add(down);
+            form.addView(line);
+            space(form, 8);
+        }
+        refresh.run();
+        Dialog[] dialog = {null};
+        dialog[0] = formDialog("", "習慣の並び替え", form, "順番を保存", () -> {
+            StringJoiner ids = new StringJoiner(",");
+            for (Store.Habit habit : draft) ids.add(Long.toString(habit.id()));
+            getPreferences(MODE_PRIVATE).edit().putString(TODAY_HABIT_ORDER, ids.toString()).apply();
+            dialog[0].dismiss();
+            render();
+        });
+        Ui.show(dialog[0], this);
     }
 
     private void habitCard(LinearLayout parent,Store.Habit h){
@@ -521,7 +604,15 @@ public class MainActivity extends Activity {
         Set<LocalDate> frozen=store.ticketDays(h.id());Map<LocalDate,Store.Entry> records=new HashMap<>();double scale=Math.max(1,metric.target());for(Store.Entry e:store.entries(h.id(),selectedStart,end)){records.put(e.day(),e);if(e.amount()!=null&&e.unit().equals(metric.unit()))scale=Math.max(scale,e.amount());}
         for(int index=0;index<count;index++){LocalDate day=calendarStart.plusDays(index);if(day.isBefore(h.created())||day.isAfter(end)){shades[index]=-1;continue;}Store.Entry e=records.get(day);Double amount=e!=null&&e.unit().equals(metric.unit())?e.amount():null;shades[index]=e==null&&frozen.contains(day)?GrassView.TICKET:Progress.contribution(check,e!=null,amount,scale,e==null?0:e.level());if(amount!=null)amounts[index]=amount;}
         LinearLayout calendarHead=row();calendarHead.addView(text("🌿 活動カレンダー",19,INK,true),new LinearLayout.LayoutParams(0,-2,1));calendarHead.addView(infoChip("見方 ⓘ","成果の見方を開く",()->progressHelp(check)));parent.addView(calendarHead);space(parent,8);String heading=period==1?calendarStart.format(DateTimeFormatter.ofPattern("yyyy年M月")):period==2?calendarStart.getYear()+"年":calendarStart+" 〜 "+calendarEnd;parent.addView(text(heading,16,GREEN,true));space(parent,8);
-        GrassView grass=new GrassView(this,calendarStart,calendarEnd,shades,amounts,!check,metric.unit());grass.onDayClick=day->{Store.Entry e=store.entry(h.id(),day);String body=day.isAfter(end)?"この日はまだ記録できません（未来の日付）。":day.isBefore(h.created())?"習慣を始める前の日です。":e.level()==0?(frozen.contains(day)?"🎟 継続チケットを自動で1枚使用しました。\n連続記録を守ったお休みの日です。達成日数は増えず、達成率も変わりません。":"この日の記録はまだありません。"):Rules.grade(e.level())+(e.amount()!=null?"\n"+Ui.number(e.amount())+e.unit():"")+(e.note().isEmpty()?"":"\n\n"+e.note());Ui.show(Ui.sheet(this,h.goal(),day.toString(),body,"確認した",null),this);};
+        GrassView grass = new GrassView(this, calendarStart, calendarEnd, shades, amounts, !check, metric.unit());
+        grass.dayStatus = day -> {
+            if (day.isAfter(end)) return "未来の日付";
+            if (day.isBefore(h.created())) return "習慣を始める前の日";
+            Store.Entry entry = records.get(day);
+            if (entry == null) return frozen.contains(day) ? "継続チケットを使用" : "未記録";
+            return Rules.grade(entry.level()) + (entry.amount() == null ? "" : "、" + Ui.number(entry.amount()) + entry.unit());
+        };
+        grass.onDayClick=day->{Store.Entry e=store.entry(h.id(),day);String body=day.isAfter(end)?"この日はまだ記録できません（未来の日付）。":day.isBefore(h.created())?"習慣を始める前の日です。":e.level()==0?(frozen.contains(day)?"🎟 継続チケットを自動で1枚使用しました。\n連続記録を守ったお休みの日です。達成日数は増えず、達成率も変わりません。":"この日の記録はまだありません。"):Rules.grade(e.level())+(e.amount()!=null?"\n"+Ui.number(e.amount())+e.unit():"")+(e.note().isEmpty()?"":"\n\n"+e.note());Ui.show(Ui.sheet(this,h.goal(),day.toString(),body,"確認した",null),this);};
         if(period<=1){int cell=Math.max(32,Math.min(48,(int)((getResources().getDisplayMetrics().widthPixels-dp(84))/getResources().getDisplayMetrics().density/7)));grass.compact(period==0?1:2,cell);parent.addView(grass,new LinearLayout.LayoutParams(grass.width(),grass.height()));}
         else{LinearLayout grid=row();int gridHeight=grass.height();grid.addView(new GrassView.WeekLabels(this),new LinearLayout.LayoutParams(dp(24),gridHeight));HorizontalScrollView scroll=new HorizontalScrollView(this);scroll.setFillViewport(true);scroll.setHorizontalScrollBarEnabled(true);grass.setMinimumWidth(grass.width());scroll.addView(grass,new android.widget.FrameLayout.LayoutParams(grass.width(),gridHeight));grid.addView(scroll,new LinearLayout.LayoutParams(0,gridHeight,1));parent.addView(grid);scroll.post(()->scroll.fullScroll(View.FOCUS_RIGHT));}
         int[] calendarColors=GrassView.palette(this);space(parent,12);LinearLayout legend=row();View empty=new View(this);empty.setBackground(shape(calendarColors[0],3));legend.addView(empty,new LinearLayout.LayoutParams(dp(12),dp(12)));legend.addView(text(" 未記録  ",11,MUTED,false));int[] colors=check?new int[]{calendarColors[1],calendarColors[2],calendarColors[4]}:Arrays.copyOfRange(calendarColors,1,5);String[] labels={" ミニ  "," 目標  "," 挑戦"};for(int at=0;at<colors.length;at++){View square=new View(this);square.setBackground(shape(colors[at],3));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(dp(12),dp(12));lp.rightMargin=dp(3);legend.addView(square,lp);if(check)legend.addView(text(labels[at],11,MUTED,false));}if(!check)legend.addView(text(" 少 → 多",11,MUTED,false));parent.addView(legend);space(parent,8);LinearLayout ticketLegend=row();View ticketSquare=new View(this);ticketSquare.setBackground(shape(calendarColors[GrassView.TICKET],3));ticketLegend.addView(ticketSquare,new LinearLayout.LayoutParams(dp(12),dp(12)));ticketLegend.addView(text(" チケット",11,MUTED,false));parent.addView(ticketLegend);space(parent,10);
@@ -602,7 +693,16 @@ public class MainActivity extends Activity {
         LinearLayout learn=card(content);learn.addView(text("🧠 ちょっとだけ、習慣の科学。",20,INK,true));space(learn,12);for(int i=0;i<Learn.TIPS.length;i++){final int at=i;learn.addView(button(Learn.TIPS[i][0],false,()->Learn.show(this,at)));space(learn,7);}
         LinearLayout widget=card(content);widget.addView(text("📱 ホーム画面のウィジェット",20,INK,true));space(widget,10);sub(widget,"「記録」は1タップで達成。「成果」は連続日数・累計日数と週間の折れ線を確認できます。");space(widget,18);widget.addView(button("背景色を選ぶ · "+WidgetColors.NAMES[WidgetColors.selected(this)],false,this::widgetColors));space(widget,12);widget.addView(button("記録ウィジェットを追加",false,()->WidgetSetup.show(this)));space(widget,12);widget.addView(button("成果ウィジェットを追加",false,()->WidgetSetup.showProgress(this)));
         historyCsvSettings();
-        LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。アンインストール・データ消去で失われます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
+        LinearLayout backup = card(content);
+        backup.addView(text("機種変更用バックアップ", 20, INK, true));
+        space(backup, 10);
+        sub(backup, "習慣の設定、達成記録、メモ、完走した集中履歴、継続チケットをファイルに保存できます。復元は習慣が0件の端末で行えます。");
+        space(backup, 14);
+        backup.addView(button("バックアップを保存", false,
+            () -> pickBackupFile(HabitBackup.createDocument(LocalDate.now()), CREATE_HABIT_BACKUP)));
+        space(backup, 8);
+        backup.addView(button("バックアップから復元", false, this::confirmBackupRestore));
+        LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。機種変更やアプリのデータ消去の前には、習慣のバックアップを保存できます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
     }
     private void historyCsvSettings() {
         LinearLayout card = card(content);
@@ -694,8 +794,79 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void confirmBackupRestore() {
+        if (store.hasHabits()) {
+            Toast.makeText(this, "習慣が0件の端末で復元してください。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Ui.show(Ui.sheet(this, "", "習慣データを復元する？",
+            "別の端末で保存したRoutiaのバックアップを選ぶと、習慣と記録を復元します。継続レビューやAPIキーは引き継ぎ対象外です。",
+            "ファイルを選ぶ", () -> pickBackupFile(HabitBackup.openDocument(), RESTORE_HABIT_BACKUP)), this);
+    }
+
+    private void pickBackupFile(Intent picker, int request) {
+        if (BACKUP_IN_PROGRESS.get()) {
+            Toast.makeText(this, "バックアップの処理中です。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            startActivityForResult(picker, request);
+        } catch (ActivityNotFoundException unavailable) {
+            Toast.makeText(this, "ファイルを選ぶ画面を開けませんでした。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void handleBackupFile(boolean restore, Uri file) {
+        if (file == null) {
+            Toast.makeText(this, "選択したファイルを確認できませんでした。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!BACKUP_IN_PROGRESS.compareAndSet(false, true)) {
+            Toast.makeText(this, "バックアップの処理中です。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Context app = getApplicationContext();
+        new Thread(() -> {
+            String message;
+            try {
+                if (restore) {
+                    int count = HabitBackup.load(app, file);
+                    message = count == 0 ? "バックアップに習慣がありませんでした。" : count + "件の習慣と記録を復元しました。";
+                    if (count > 0) {
+                        try {
+                            WidgetRefresh.refresh(app, true);
+                        } catch (RuntimeException refreshFailed) {
+                            android.util.Log.w("RoutiaBackup", "Refresh failed: " + refreshFailed.getClass().getSimpleName());
+                        }
+                        app.sendBroadcast(new Intent("app.routia.CHANGED").setPackage(app.getPackageName()),
+                            app.getPackageName() + ".INTERNAL");
+                    }
+                } else {
+                    HabitBackup.save(app, file);
+                    message = "バックアップを保存しました。";
+                }
+            } catch (HabitBackup.ExistingHabits existing) {
+                message = "習慣が0件の端末で復元してください。";
+            } catch (HabitBackup.InvalidBackup invalid) {
+                message = "このファイルは復元できません。Routiaで保存したバックアップを選んでください。";
+            } catch (IOException | RuntimeException failed) {
+                message = restore ? "バックアップを読み込めませんでした。ファイルを選び直してください。"
+                    : "バックアップを保存できませんでした。保存先を確認してください。";
+            } finally {
+                BACKUP_IN_PROGRESS.set(false);
+            }
+            String result = message;
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(app, result, Toast.LENGTH_LONG).show());
+        }, "routia-habit-backup").start();
+    }
+
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
         super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode == CREATE_HABIT_BACKUP || requestCode == RESTORE_HABIT_BACKUP) {
+            if (resultCode == RESULT_OK) handleBackupFile(requestCode == RESTORE_HABIT_BACKUP,
+                data == null ? null : data.getData());
+            return;
+        }
         if (requestCode != CREATE_HISTORY_CSV) return;
         HabitHistoryCsv.Selection selection = pendingHistoryCsv;
         pendingHistoryCsv = null;

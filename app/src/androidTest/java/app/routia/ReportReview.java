@@ -513,7 +513,44 @@ final class ReportReview {
     boolean below(View lower,View upper){
         int[] a=new int[2],b=new int[2];lower.getLocationOnScreen(a);upper.getLocationOnScreen(b);return a[1]>=b[1]+upper.getHeight();
     }
+    private void reviewCalendarAccessibility(Context context) {
+        i.runOnMainSync(() -> {
+            LocalDate first = LocalDate.of(2026, 11, 30);
+            int[] shades = {1, 2, 4, 5, 0, -1, -1};
+            String[] statuses = {"ミニ達成", "目標達成、15分", "チャレンジ達成", "継続チケットを使用", "未記録", "未来の日付", "未来の日付"};
+            for (int mode : new int[]{0, 1, 2}) {
+                GrassView grass = new GrassView(context, first, first.plusDays(6), shades, new double[7], true, "分");
+                if (mode > 0) grass.compact(mode, 42);
+                grass.layout(0, 0, grass.width(), grass.height());
+                grass.dayStatus = day -> statuses[(int) java.time.temporal.ChronoUnit.DAYS.between(first, day)];
+                LocalDate[] opened = {null};
+                grass.onDayClick = day -> opened[0] = day;
+                android.view.accessibility.AccessibilityNodeProvider provider = grass.getAccessibilityNodeProvider();
+                check(provider.createAccessibilityNodeInfo(-1).getChildCount() == 7, "calendar exposes one accessibility node per date");
+                for (int index = 0; index < shades.length; index++) {
+                    android.view.accessibility.AccessibilityNodeInfo node = provider.createAccessibilityNodeInfo(index);
+                    check(node.getContentDescription().toString().endsWith(statuses[index]), "calendar reads the date's status and amount");
+                    check(provider.performAction(index, android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK, null)
+                        && first.plusDays(index).equals(opened[0]), "accessibility activation opens the selected date");
+                    android.graphics.Rect bounds = new android.graphics.Rect();
+                    node.getBoundsInParent(bounds);
+                    long now = android.os.SystemClock.uptimeMillis();
+                    MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY(), 0);
+                    MotionEvent up = MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, bounds.centerX(), bounds.centerY(), 0);
+                    opened[0] = null;
+                    grass.onTouchEvent(down);
+                    grass.onTouchEvent(up);
+                    down.recycle();
+                    up.recycle();
+                    check(first.plusDays(index).equals(opened[0]), "direct touch and accessibility use the same cell");
+                }
+                check(provider.performAction(1, android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null)
+                    && provider.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_ACCESSIBILITY).isAccessibilityFocused(), "focus follows the virtual date");
+            }
+        });
+    }
     void reviewCalendars(Context c)throws Exception{
+        reviewCalendarAccessibility(c);
         for(int theme:new int[]{0,1,2,3,4,5,6}){
             AppColors.save(c,theme);
             final android.graphics.Bitmap[] bitmap={null};
