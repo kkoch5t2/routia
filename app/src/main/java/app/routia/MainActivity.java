@@ -19,15 +19,21 @@ import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntConsumer;
 
 public class MainActivity extends Activity {
     private static final int CREATE_HISTORY_CSV = 201;
     private static final int CREATE_HABIT_BACKUP = 202;
     private static final int RESTORE_HABIT_BACKUP = 203;
     private static final AtomicBoolean BACKUP_IN_PROGRESS = new AtomicBoolean();
+    private long historyCsvHabitId;
+    private HabitHistoryCsv.Period historyCsvPeriod = HabitHistoryCsv.Period.ALL;
+    private HabitHistoryCsv.Selection pendingHistoryCsv;
+    private AlertDialog historyCsvConfirmDialog;
     private int BG,INK,GREEN,MUTED,PALE;
     private LinearLayout root,content;private Store store;private int page;private boolean registered;
     private LocalDate displayedDay;
+    private boolean showOnlyUnfinished;
     private final Map<Long,HistorySelection> historySelections=new HashMap<>();
     private long chartHabit=-1,reportTask;
     private int reportYear,reportMonth,renderVersion;
@@ -57,6 +63,12 @@ public class MainActivity extends Activity {
     private LinearLayout card(LinearLayout parent){LinearLayout l=column();l.setPadding(dp(18),dp(18),dp(18),dp(18));l.setBackground(shape(Color.WHITE,24));LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.bottomMargin=dp(14);parent.addView(l,p);return l;}
     private void header(String eyebrow,String title,String body){sub(content,eyebrow);space(content,7);content.addView(text(title,28,INK,true));space(content,10);sub(content,body);space(content,22);}
     @Override public void onCreate(Bundle b){AppColors.applyTheme(this);super.onCreate(b);BG=Ui.surface(this,Ui.BG);INK=Ui.ink(this,Ui.INK);GREEN=Ui.ink(this,Ui.GREEN);MUTED=Ui.ink(this,Ui.MUTED);PALE=Ui.surface(this,Ui.PALE);store=Store.get(this);if(b!=null){page=b.getInt("page");resumeScrollY=b.getInt("scroll");reportTask=b.getLong("report_task",0);reportYear=b.getInt("report_year",0);reportMonth=b.getInt("report_month",0);reportPage=Math.max(0,b.getLong("report_page",0));}
+        if (b != null) {
+            showOnlyUnfinished = b.getBoolean("today_unfinished");
+            historyCsvHabitId = b.getLong("history_csv_habit");
+            historyCsvPeriod = HabitHistoryCsv.Period.valueOf(b.getString("history_csv_period","ALL"));
+            pendingHistoryCsv = HabitHistoryCsv.Selection.restore(b.getBundle("history_csv_pending"));
+        }
         if(this instanceof AchievementChartsActivity){chartHabit=getIntent().getLongExtra("chart_habit",-1);if(store.habit(chartHabit)==null){finish();return;}}
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);if(Build.VERSION.SDK_INT>=27)getWindow().getDecorView().setSystemUiVisibility(Ui.night(this)?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         root=column();root.setBackgroundColor(BG);root.setFitsSystemWindows(true);setContentView(root);
@@ -71,11 +83,16 @@ public class MainActivity extends Activity {
         if(i.getBooleanExtra("focusSameDay",true)){Feedback.deliver(this,root,false,"集中時間を保存しました");if(i.getBooleanExtra("focusCelebrate",false))Celebration.show(this,h,store.level(id,LocalDate.now()),false,()->{page=1;render();});}
         else Ui.show(Ui.sheet(this,"FOCUS COMPLETE","日付をまたいで、完走。","集中時間はタイマーを開始した日の達成に加算しました。今日の達成には加算していません。","OK",null),this);
     }
-    @Override public void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);if(reminderDialog!=null&&reminderDialog.isShowing()){b.putIntArray("reminder_draft",reminderDraft.clone());b.putInt("reminder_scroll",reminderDialog.formScroll.getScrollY());if(reminderTimePicker!=null&&reminderTimePicker.isShowing()){b.putBundle("reminder_picker",reminderTimePicker.onSaveInstanceState());b.putInt("reminder_picker_slot",reminderPickerSlot);}}b.putLong("report_task",reportTask);b.putInt("report_year",reportYear);b.putInt("report_month",reportMonth);b.putLong("report_page",reportPage);if(reportPageDialog!=null&&reportPageDialog.isShowing()&&reportPageInput!=null)b.putString("report_page_draft",reportPageInput.getText().toString());b.putInt("page",page);b.putInt("scroll",content!=null&&content.getParent() instanceof ScrollView?((ScrollView)content.getParent()).getScrollY():resumeScrollY);}
+    @Override public void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);
+        b.putBoolean("today_unfinished",showOnlyUnfinished);
+        b.putLong("history_csv_habit",historyCsvHabitId);
+        b.putString("history_csv_period",historyCsvPeriod.name());
+        if (pendingHistoryCsv != null) b.putBundle("history_csv_pending",pendingHistoryCsv.saveState());
+        if(reminderDialog!=null&&reminderDialog.isShowing()){b.putIntArray("reminder_draft",reminderDraft.clone());b.putInt("reminder_scroll",reminderDialog.formScroll.getScrollY());if(reminderTimePicker!=null&&reminderTimePicker.isShowing()){b.putBundle("reminder_picker",reminderTimePicker.onSaveInstanceState());b.putInt("reminder_picker_slot",reminderPickerSlot);}}b.putLong("report_task",reportTask);b.putInt("report_year",reportYear);b.putInt("report_month",reportMonth);b.putLong("report_page",reportPage);if(reportPageDialog!=null&&reportPageDialog.isShowing()&&reportPageInput!=null)b.putString("report_page_draft",reportPageInput.getText().toString());b.putInt("page",page);b.putInt("scroll",content!=null&&content.getParent() instanceof ScrollView?((ScrollView)content.getParent()).getScrollY():resumeScrollY);}
     @Override public void onResume(){super.onResume();if(store==null)return;historySelections.clear();Reminders.all(this);HabitWidget.update(this);ReportNotices.deliverPending(this);render();if(content.getParent() instanceof ScrollView){ScrollView sc=(ScrollView)content.getParent();Ui.restoreScroll(sc,resumeScrollY);}IntentFilter f=new IntentFilter("app.routia.CHANGED");if(Build.VERSION.SDK_INT>=33)registerReceiver(changes,f,Context.RECEIVER_NOT_EXPORTED);else legacyRegister(f);registered=true;handler.postDelayed(dayCheck,15000);}
     @android.annotation.SuppressLint("UnspecifiedRegisterReceiverFlag") private void legacyRegister(IntentFilter f){registerReceiver(changes,f,getPackageName()+".INTERNAL",null);}
     @Override public void onPause(){if(content!=null&&content.getParent() instanceof ScrollView)resumeScrollY=((ScrollView)content.getParent()).getScrollY();if(reviewFeatureDialog!=null)reviewFeatureDialog.dismiss();handler.removeCallbacks(dayCheck);if(registered){unregisterReceiver(changes);registered=false;}super.onPause();}
-    @Override protected void onDestroy(){if(reminderTimePicker!=null)reminderTimePicker.dismiss();if(reminderDialog!=null)reminderDialog.dismiss();if(recordCorrectionDialog!=null)recordCorrectionDialog.dismiss();if(reportPageDialog!=null)reportPageDialog.dismiss();super.onDestroy();Celebration.dismiss(this);handler.removeCallbacksAndMessages(null);}
+    @Override protected void onDestroy(){if(historyCsvConfirmDialog!=null)historyCsvConfirmDialog.dismiss();if(reminderTimePicker!=null)reminderTimePicker.dismiss();if(reminderDialog!=null)reminderDialog.dismiss();if(recordCorrectionDialog!=null)recordCorrectionDialog.dismiss();if(reportPageDialog!=null)reportPageDialog.dismiss();super.onDestroy();Celebration.dismiss(this);handler.removeCallbacksAndMessages(null);}
     private void render(){if(root==null)return;renderVersion++;store.evaluateTickets(LocalDate.now());displayedDay=LocalDate.now();root.removeAllViews();LinearLayout head=row();head.setPadding(dp(23),dp(17),dp(23),dp(12));Mascot ruti=new Mascot(this,Mascot.AVATAR);ruti.setId(R.id.ruti_header);ruti.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);ruti.setContentDescription("Routiaの相棒、ルティについて");ruti.setFocusable(true);ruti.setOnClickListener(v->Mascot.intro(this));LinearLayout.LayoutParams portrait=new LinearLayout.LayoutParams(dp(38),dp(42));portrait.rightMargin=dp(8);head.addView(ruti,portrait);LinearLayout brand=column();brand.addView(text("Routia",24,GREEN,true));brand.addView(text("ルティと、今日の一歩",10,MUTED,false));head.addView(brand,new LinearLayout.LayoutParams(0,-2,1));head.addView(text(displayedDay.format(DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE",Locale.JAPANESE)),12,MUTED,false));root.addView(head);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);content=column();content.setPadding(dp(20),dp(8),dp(20),dp(22));scroll.addView(content);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         if(chartHabit>=0){
@@ -99,7 +116,13 @@ public class MainActivity extends Activity {
         root.addView(nav);root.requestApplyInsets();
     }
     private void today(){
-        List<Store.Habit> habits=todayHabits();int capacity=Rules.MAX_HABITS,done=0;for(Store.Habit h:habits)if(store.level(h.id(),displayedDay)>0)done++;
+        List<Store.Habit> habits = todayHabits();
+        List<Store.Habit> unfinished = new ArrayList<>();
+        for (Store.Habit habit : habits) {
+            if (store.level(habit.id(),displayedDay) == 0) unfinished.add(habit);
+        }
+        int capacity = Rules.MAX_HABITS;
+        int done = habits.size() - unfinished.size();
         boolean all=!habits.isEmpty()&&done==habits.size();int hour=LocalTime.now().getHour();int minute=hour*60+LocalTime.now().getMinute();int[] notify=Reminders.times(this);int reminderStage=ReminderTimes.stageAt(minute,notify);int accent=all?GREEN:reminderStage>=2?0xffAD493D:reminderStage==1?0xffA66B29:GREEN;
         header("SMALL STEPS. REAL PROGRESS.",all?"今日の自分に、拍手。":reminderStage>=2?"今日の一歩、まだ間に合う。":"やることを、ひとつずつ。",all?"ミニ目標も、しっかり成功。\nここまでの積み重ねは、消えません。":"きっかけがなくても、始められる。\nまずは「何をやるか」だけ決めよう。");
         if(!habits.isEmpty()){
@@ -112,7 +135,11 @@ public class MainActivity extends Activity {
             content.addView(button("習慣を並び替える", false, this::editTodayHabitOrder));
             space(content, 12);
         }
-        for(Store.Habit h:habits)habitCard(h);
+        if (!habits.isEmpty()) {
+            LinearLayout habitList = column();
+            content.addView(habitList);
+            renderTodayHabitList(habitList,habits,unfinished);
+        }
         if(habits.size()<capacity){if(habits.isEmpty()){LinearLayout c=card(content);c.addView(new Mascot(this,Mascot.WELCOME),new LinearLayout.LayoutParams(-1,dp(100)));c.addView(text("こんにちは、ルティです。",21,INK,true));space(c,10);sub(c,"小さな一歩を、未来の蓄えに。\nまずはそのまま習慣をつくれます。内容はあとから変えても大丈夫。");space(c,18);c.addView(button("最初の習慣をつくる",true,()->editor(null,null)));space(c,9);c.addView(button("例からつくる · 英語",false,()->editor(null,"英語を聞く")));}else content.addView(button("＋ 習慣を追加  ·  "+habits.size()+" / "+capacity,false,()->editor(null,null)));}
         else sub(content,"登録済み "+habits.size()+"個 / 上限 "+capacity+"個");
         space(content,16);int tip=displayedDay.getDayOfYear()%Learn.TIPS.length;content.addView(button(Learn.TIPS[tip][0],false,()->Learn.show(this,tip)));
@@ -124,6 +151,34 @@ public class MainActivity extends Activity {
             }
         }
     }
+    private void renderTodayHabitList(LinearLayout list,List<Store.Habit> habits,List<Store.Habit> unfinished) {
+        list.removeAllViews();
+        LinearLayout filters = row();
+        list.addView(filters);
+        todayHabitFilter(filters,list,"すべて",false,habits,unfinished);
+        todayHabitFilter(filters,list,"未達成のみ",true,habits,unfinished);
+        space(list,10);
+        if (showOnlyUnfinished && unfinished.isEmpty()) {
+            LinearLayout empty = card(list);
+            sub(empty,"今日の未達成の習慣はありません。");
+        }
+        for (Store.Habit habit : showOnlyUnfinished ? unfinished : habits) habitCard(list,habit);
+    }
+
+    private void todayHabitFilter(LinearLayout filters,LinearLayout list,String label,boolean unfinishedOnly,
+            List<Store.Habit> habits,List<Store.Habit> unfinished) {
+        boolean selected = showOnlyUnfinished == unfinishedOnly;
+        TextView toggle = button(label,selected,() -> {
+            if (showOnlyUnfinished == unfinishedOnly) return;
+            showOnlyUnfinished = unfinishedOnly;
+            renderTodayHabitList(list,habits,unfinished);
+        });
+        toggle.setSelected(selected);
+        LinearLayout.LayoutParams position = new LinearLayout.LayoutParams(0,-2,1);
+        position.setMargins(dp(3),0,dp(3),0);
+        filters.addView(toggle,position);
+    }
+
     private static final String TODAY_HABIT_ORDER = "today_habit_order";
 
     private List<Store.Habit> todayHabits() {
@@ -198,9 +253,9 @@ public class MainActivity extends Activity {
         Ui.show(dialog[0], this);
     }
 
-    private void habitCard(Store.Habit h){
+    private void habitCard(LinearLayout parent,Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
-        LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
+        LinearLayout c=card(parent),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
         String description=store.description(h.id());
         if(!description.isEmpty()){
             sectionHeading(c,"やることの詳細");
@@ -268,9 +323,41 @@ public class MainActivity extends Activity {
         space(box,10);box.addView(button("モデル・金額・APIの共通設定",false,()->{d.dismiss();openReportSettings();}));
         space(box,28);Ui.divider(box);space(box,24);box.addView(text("習慣の削除",16,Ui.RED,true));space(box,8);sub(box,"以下の操作には確認画面を表示します。");
 
-        space(box,16);box.addView(Ui.danger(this,"この習慣を削除",()->{if(Focus.exists(this)&&Focus.prefs(this).getLong("habit",-1)==h.id()){Toast.makeText(this,"タイマーを完了または取り消してから削除してください",Toast.LENGTH_LONG).show();return;}Ui.show(Ui.sheet(this,"","この習慣を削除する？","「"+h.goal()+"」の達成・数値・メモ・集中履歴を削除します。元には戻せません。保存したAIレポートも削除します。","削除する",()->{Reminders.cancel(this,h.id());store.delete(h.id());ReportSettings.prefs(this).edit().remove("habit_enabled_"+h.id()).remove("habit_from_"+h.id()).apply();ReportJob.schedule(this);try(ReportStore reports=new ReportStore(this)){reports.dropHabit(h.id());}Reminders.all(this);HabitWidget.update(this);d.dismiss();render();}),this);}));
+        space(box,16);box.addView(Ui.danger(this,"この習慣を削除",() -> confirmHabitDeletion(h,d)));
         space(box,28);box.addView(button("閉じる",false,d::dismiss));ScrollView scroll=new ScrollView(this);scroll.addView(box);d.setContentView(scroll);d.getWindow().setBackgroundDrawableResource(android.R.color.transparent);Ui.show(d,this);
     }
+    private void confirmHabitDeletion(Store.Habit habit,Dialog management) {
+        if (Focus.exists(this) && Focus.prefs(this).getLong("habit",-1)==habit.id()) {
+            Toast.makeText(this,"タイマーを完了または取り消してから削除してください",Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        long count;
+        try {
+            count = store.countHabitRecords(habit.id());
+        } catch (android.database.sqlite.SQLiteException failure) {
+            Toast.makeText(this,"記録件数を確認できませんでした。もう一度お試しください。",Toast.LENGTH_LONG).show();
+            return;
+        }
+        String message = "「" + habit.goal() + "」の日々の記録 " + count + " 件（達成・数値・メモ）を削除します。"
+            + "\n集中履歴と保存済みの継続レビューも削除します。元には戻せません。";
+        Ui.show(Ui.sheet(this,"","この習慣を削除する？",message,"削除する",() -> {
+            Reminders.cancel(this,habit.id());
+            store.delete(habit.id());
+            ReportSettings.prefs(this).edit()
+                .remove("habit_enabled_" + habit.id())
+                .remove("habit_from_" + habit.id()).apply();
+            ReportJob.schedule(this);
+            try (ReportStore reports = new ReportStore(this)) {
+                reports.dropHabit(habit.id());
+            }
+            Reminders.all(this);
+            HabitWidget.update(this);
+            management.dismiss();
+            render();
+        }),this);
+    }
+
     private void mark(Store.Habit h,int level){try{Store.Result r=store.record(h.id(),LocalDate.now(),level,false);HabitWidget.update(this);Reminders.refreshVisible(this);render();if(r.changed()){Feedback.deliver(this,root,r.recovery(),Rules.feedback(r.recovery(),r.level()));if(r.level()>=Rules.FULL)Celebration.show(this,h,r.level(),r.recovery(),()->{page=1;render();});}}catch(IllegalArgumentException e){Toast.makeText(this,e.getMessage(),Toast.LENGTH_LONG).show();}}
     private void correct(Store.Habit h){
         if(!store.metric(h.id()).kind().equals("check")){details(h);return;}
@@ -605,12 +692,7 @@ public class MainActivity extends Activity {
         space(analysis,8);sub(analysis,"APIキーはここから1回だけ設定。対象は目標ごとに選べます。全体オフでは、共通設定を保存しても生成しません。送信済みの処理は取り消せません。");
         LinearLayout learn=card(content);learn.addView(text("🧠 ちょっとだけ、習慣の科学。",20,INK,true));space(learn,12);for(int i=0;i<Learn.TIPS.length;i++){final int at=i;learn.addView(button(Learn.TIPS[i][0],false,()->Learn.show(this,at)));space(learn,7);}
         LinearLayout widget=card(content);widget.addView(text("📱 ホーム画面のウィジェット",20,INK,true));space(widget,10);sub(widget,"「記録」は1タップで達成。「成果」は連続日数・累計日数と週間の折れ線を確認できます。");space(widget,18);widget.addView(button("背景色を選ぶ · "+WidgetColors.NAMES[WidgetColors.selected(this)],false,this::widgetColors));space(widget,12);widget.addView(button("記録ウィジェットを追加",false,()->WidgetSetup.show(this)));space(widget,12);widget.addView(button("成果ウィジェットを追加",false,()->WidgetSetup.showProgress(this)));
-        LinearLayout historyExport = card(content);
-        historyExport.addView(text("習慣記録の書き出し",20,INK,true));
-        space(historyExport,10);
-        sub(historyExport,"日付・習慣名・達成段階・時間や回数をCSVに保存します。");
-        space(historyExport,14);
-        historyExport.addView(button("CSVを書き出す",false,this::exportHistoryCsv));
+        historyCsvSettings();
         LinearLayout backup = card(content);
         backup.addView(text("機種変更用バックアップ", 20, INK, true));
         space(backup, 10);
@@ -622,10 +704,92 @@ public class MainActivity extends Activity {
         backup.addView(button("バックアップから復元", false, this::confirmBackupRestore));
         LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。機種変更やアプリのデータ消去の前には、習慣のバックアップを保存できます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
     }
-    private void exportHistoryCsv() {
+    private void historyCsvSettings() {
+        LinearLayout card = card(content);
+        card.addView(text("習慣記録の書き出し",20,INK,true));
+        space(card,10);
+        sub(card,"日付・習慣名・達成段階・時間や回数をCSVに保存します。");
+        space(card,14);
+        List<Store.Habit> habits = store.habits();
+        String[] names = new String[habits.size() + 1];
+        names[0] = "全習慣";
+        int selected = 0;
+        for (int at = 0; at < habits.size(); at++) {
+            Store.Habit habit = habits.get(at);
+            names[at + 1] = habit.goal();
+            if (habit.id() == historyCsvHabitId) selected = at + 1;
+        }
+        if (selected == 0) historyCsvHabitId = 0;
+        csvSelector(card,"習慣",names,selected,
+            position -> historyCsvHabitId = position == 0 ? 0 : habits.get(position - 1).id());
+        space(card,10);
+
+        HabitHistoryCsv.Period[] periods = HabitHistoryCsv.Period.values();
+        String[] periodLabels = new String[periods.length];
+        for (int at = 0; at < periods.length; at++) periodLabels[at] = periods[at].label;
+        csvSelector(card,"期間",periodLabels,historyCsvPeriod.ordinal(),
+            position -> historyCsvPeriod = periods[position]);
+        space(card,14);
+        card.addView(button("CSVを書き出す",false,this::confirmHistoryCsv));
+    }
+
+    private void csvSelector(LinearLayout parent,String label,String[] labels,int selected,IntConsumer select) {
+        Spinner spinner = new Spinner(this,Spinner.MODE_DIALOG);
+        spinner.setId(View.generateViewId());
+        spinner.setMinimumHeight(dp(48));
+        spinner.setPrompt(label);
+        TextView caption = text(label,13,INK,true);
+        caption.setLabelFor(spinner.getId());
+        parent.addView(caption);
+        spinner.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));
+        spinner.setSelection(selected);
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> view, View item, int position, long id) {
+                if (view.isAttachedToWindow()) select.accept(position);
+            }
+            @Override public void onNothingSelected(AdapterView<?> view) {}
+        });
+        parent.addView(spinner,new LinearLayout.LayoutParams(-1,-2));
+    }
+
+    private void confirmHistoryCsv() {
+        HabitHistoryCsv.Selection selection = new HabitHistoryCsv.Selection(
+            historyCsvHabitId,historyCsvPeriod,LocalDate.now());
+        String habitName = "全習慣";
+        if (selection.habitId() != 0) {
+            Store.Habit habit = store.habit(selection.habitId());
+            if (habit == null) {
+                Toast.makeText(this,"対象の習慣が見つかりません。習慣を選び直してください。",Toast.LENGTH_LONG).show();
+                return;
+            }
+            habitName = habit.goal();
+        }
+
+        long count;
         try {
-            startActivityForResult(HabitHistoryCsv.createDocumentIntent(LocalDate.now()), CREATE_HISTORY_CSV);
+            count = store.countHistoryCsv(selection);
+        } catch (android.database.sqlite.SQLiteException failure) {
+            Toast.makeText(this,"書き出し対象の件数を確認できませんでした。",Toast.LENGTH_LONG).show();
+            return;
+        }
+        String message = habitName + " · " + selection.period().label + "\n\n書き出し対象の記録は " + count + " 件です。";
+        if (count == 0) message += "\n保存すると、列名だけのCSVになります。";
+        historyCsvConfirmDialog = new AlertDialog.Builder(this)
+            .setTitle("CSV書き出しの確認")
+            .setMessage(message)
+            .setNegativeButton("戻る",null)
+            .setPositiveButton("保存先を選ぶ",(dialog,which) -> exportHistoryCsv(selection))
+            .create();
+        historyCsvConfirmDialog.setOnDismissListener(dialog -> historyCsvConfirmDialog = null);
+        historyCsvConfirmDialog.show();
+    }
+
+    private void exportHistoryCsv(HabitHistoryCsv.Selection selection) {
+        pendingHistoryCsv = selection;
+        try {
+            startActivityForResult(HabitHistoryCsv.createDocumentIntent(selection.date()), CREATE_HISTORY_CSV);
         } catch (ActivityNotFoundException unavailable) {
+            pendingHistoryCsv = null;
             Toast.makeText(this,"保存先を選ぶ画面を開けませんでした。",Toast.LENGTH_LONG).show();
         }
     }
@@ -703,15 +867,18 @@ public class MainActivity extends Activity {
                 data == null ? null : data.getData());
             return;
         }
-        if (requestCode != CREATE_HISTORY_CSV || resultCode != RESULT_OK) return;
-        if (data == null || data.getData() == null) {
+        if (requestCode != CREATE_HISTORY_CSV) return;
+        HabitHistoryCsv.Selection selection = pendingHistoryCsv;
+        pendingHistoryCsv = null;
+        if (resultCode != RESULT_OK) return;
+        if (selection == null || data == null || data.getData() == null) {
             Toast.makeText(this,"CSVの保存先を確認できませんでした。",Toast.LENGTH_LONG).show();
             return;
         }
         Context app = getApplicationContext();
         Uri destination = data.getData();
         new Thread(() -> {
-            boolean saved = HabitHistoryCsv.save(app,destination);
+            boolean saved = HabitHistoryCsv.save(app,destination,selection);
             new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(app,
                 saved ? "習慣記録をCSVに保存しました。" : "CSVを保存できませんでした。保存先を選び直してください。",
                 Toast.LENGTH_LONG).show());
