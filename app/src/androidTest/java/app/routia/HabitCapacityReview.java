@@ -48,6 +48,21 @@ final class HabitCapacityReview {
         try(Store s=new Store(c,name)){check(s.habits().size()==10&&s.habit(first).goal().equals("編集後の目標"),"ten goals and edit survive reopen");}
         c.deleteDatabase(name);
     }
+    private int todayPosition(View root, String name) {
+        View card = (View) views.find(root, name).getParent();
+        return ((ViewGroup) card.getParent()).indexOfChild(card);
+    }
+    private View findDescription(View view, String label) {
+        if (label.contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription())) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int index = 0; index < group.getChildCount(); index++) {
+                View child = findDescription(group.getChildAt(index), label);
+                if (child != null) return child;
+            }
+        }
+        return null;
+    }
     int run()throws Exception{
         Context c=i.getTargetContext();check((Build.HARDWARE.contains("ranchu")||Build.HARDWARE.contains("goldfish"))&&c.getPackageName().endsWith(".reportqa"),"dedicated emulator only");
         Store s=Store.get(c);check(s.habits().isEmpty()&&!ReportSettings.configured(c),"fresh app without real data or keys");check(!ReportSettings.featureEnabled(c),"fresh review master remains off");
@@ -69,6 +84,22 @@ final class HabitCapacityReview {
         hub.clickTag(a,"nav_achievements");for(Store.Habit h:s.habits())check(views.findTag(root(a),"summary_"+h.id())!=null,"each of ten summaries present");
         hub.clickTag(a,"nav_review");check(hub.selector(a,"継続レビューのタスク").getCount()==11,"ten task filters plus All");hub.selectLabel(a,"継続レビューのタスク","目標テスト 10");check(hub.selector(a,"継続レビューのタスク").getSelectedItem().toString().equals("目標テスト 10"),"tenth task selectable");
         MainActivity restored=(MainActivity)views.recreatePage(a);hub.clickTag(restored,"nav_today");check(views.find(root(restored),"目標テスト 10")!=null&&s.level(tenth,LocalDate.now())==2,"ten goals and achievement survive recreation");
+        View today = root(restored);
+        check(todayPosition(today, "目標テスト 9") < todayPosition(today, "目標テスト 10"), "default order follows registration");
+        click(views.find(today, "習慣を並び替える"));
+        View order = new CriteriaReview(i).window("よく使う習慣を上に移動できます。");
+        View up = findDescription(order, "10番目の「目標テスト 10」を上へ");
+        click(up);
+        click(views.find(order, "戻る"));
+        check(todayPosition(root(restored), "目標テスト 9") < todayPosition(root(restored), "目標テスト 10"), "Back discards unsaved moves");
+        click(views.find(root(restored), "習慣を並び替える"));
+        order = new CriteriaReview(i).window("よく使う習慣を上に移動できます。");
+        click(findDescription(order, "10番目の「目標テスト 10」を上へ"));
+        click(views.find(order, "順番を保存"));
+        restored = (MainActivity) views.recreatePage(restored);
+        check(todayPosition(root(restored), "目標テスト 10") < todayPosition(root(restored), "目標テスト 9"), "saved order survives recreation");
+        check(s.habits().get(9).id() == tenth && s.level(tenth, LocalDate.now()) == 2,
+            "Today order preserves database order and achievement records");
         views.shot(restored,"fixed-ten-today");
         s.delete(s.habits().get(0).id());hub.clickTag(restored,"nav_settings");hub.clickTag(restored,"nav_today");check(views.find(root(restored),"＋ 習慣を追加  ·  9 / 10")!=null,"deleting one goal reopens a slot");addUi(restored,9);check(s.habits().size()==10,"freed slot can be reused");
         i.runOnMainSync(restored::finish);return n;
