@@ -14,12 +14,17 @@ import android.text.InputFilter;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
+import java.io.IOException;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class MainActivity extends Activity {
     private static final int CREATE_HISTORY_CSV = 201;
+    private static final int CREATE_HABIT_BACKUP = 202;
+    private static final int RESTORE_HABIT_BACKUP = 203;
+    private static final AtomicBoolean BACKUP_IN_PROGRESS = new AtomicBoolean();
     private int BG,INK,GREEN,MUTED,PALE;
     private LinearLayout root,content;private Store store;private int page;private boolean registered;
     private LocalDate displayedDay;
@@ -520,7 +525,16 @@ public class MainActivity extends Activity {
         sub(historyExport,"日付・習慣名・達成段階・時間や回数をCSVに保存します。");
         space(historyExport,14);
         historyExport.addView(button("CSVを書き出す",false,this::exportHistoryCsv));
-        LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。アンインストール・データ消去で失われます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
+        LinearLayout backup = card(content);
+        backup.addView(text("機種変更用バックアップ", 20, INK, true));
+        space(backup, 10);
+        sub(backup, "習慣の設定、達成記録、メモ、完走した集中履歴、継続チケットをファイルに保存できます。復元は習慣が0件の端末で行えます。");
+        space(backup, 14);
+        backup.addView(button("バックアップを保存", false,
+            () -> pickBackupFile(HabitBackup.createDocument(LocalDate.now()), CREATE_HABIT_BACKUP)));
+        space(backup, 8);
+        backup.addView(button("バックアップから復元", false, this::confirmBackupRestore));
+        LinearLayout about=card(content);about.addView(text(versionLabel(),18,INK,true));space(about,12);about.addView(button("Routiaの相棒、ルティについて",false,()->Mascot.intro(this)));space(about,10);sub(about,"広告なし。通常の記録は端末内。AIレポートを使う場合のみ、対象の記録をOpenAIへ送ります。機種変更やアプリのデータ消去の前には、習慣のバックアップを保存できます。\n\n集中タイマーはAndroidの画面固定を使います。通常のホーム操作は抑えられますが、OSで解除可能です。管理端末化や完全なロックは行いません。\n\n「目標数の上限10個」「ミニ目標」「2日連続・週2日」は設計上のルールです。効果の保証や医学的な基準ではありません。");
     }
     private void exportHistoryCsv() {
         try {
@@ -530,8 +544,79 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void confirmBackupRestore() {
+        if (store.hasHabits()) {
+            Toast.makeText(this, "習慣が0件の端末で復元してください。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Ui.show(Ui.sheet(this, "", "習慣データを復元する？",
+            "別の端末で保存したRoutiaのバックアップを選ぶと、習慣と記録を復元します。継続レビューやAPIキーは引き継ぎ対象外です。",
+            "ファイルを選ぶ", () -> pickBackupFile(HabitBackup.openDocument(), RESTORE_HABIT_BACKUP)), this);
+    }
+
+    private void pickBackupFile(Intent picker, int request) {
+        if (BACKUP_IN_PROGRESS.get()) {
+            Toast.makeText(this, "バックアップの処理中です。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        try {
+            startActivityForResult(picker, request);
+        } catch (ActivityNotFoundException unavailable) {
+            Toast.makeText(this, "ファイルを選ぶ画面を開けませんでした。", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void handleBackupFile(boolean restore, Uri file) {
+        if (file == null) {
+            Toast.makeText(this, "選択したファイルを確認できませんでした。", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (!BACKUP_IN_PROGRESS.compareAndSet(false, true)) {
+            Toast.makeText(this, "バックアップの処理中です。", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Context app = getApplicationContext();
+        new Thread(() -> {
+            String message;
+            try {
+                if (restore) {
+                    int count = HabitBackup.load(app, file);
+                    message = count == 0 ? "バックアップに習慣がありませんでした。" : count + "件の習慣と記録を復元しました。";
+                    if (count > 0) {
+                        try {
+                            WidgetRefresh.refresh(app, true);
+                        } catch (RuntimeException refreshFailed) {
+                            android.util.Log.w("RoutiaBackup", "Refresh failed: " + refreshFailed.getClass().getSimpleName());
+                        }
+                        app.sendBroadcast(new Intent("app.routia.CHANGED").setPackage(app.getPackageName()),
+                            app.getPackageName() + ".INTERNAL");
+                    }
+                } else {
+                    HabitBackup.save(app, file);
+                    message = "バックアップを保存しました。";
+                }
+            } catch (HabitBackup.ExistingHabits existing) {
+                message = "習慣が0件の端末で復元してください。";
+            } catch (HabitBackup.InvalidBackup invalid) {
+                message = "このファイルは復元できません。Routiaで保存したバックアップを選んでください。";
+            } catch (IOException | RuntimeException failed) {
+                message = restore ? "バックアップを読み込めませんでした。ファイルを選び直してください。"
+                    : "バックアップを保存できませんでした。保存先を確認してください。";
+            } finally {
+                BACKUP_IN_PROGRESS.set(false);
+            }
+            String result = message;
+            new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(app, result, Toast.LENGTH_LONG).show());
+        }, "routia-habit-backup").start();
+    }
+
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data) {
         super.onActivityResult(requestCode,resultCode,data);
+        if (requestCode == CREATE_HABIT_BACKUP || requestCode == RESTORE_HABIT_BACKUP) {
+            if (resultCode == RESULT_OK) handleBackupFile(requestCode == RESTORE_HABIT_BACKUP,
+                data == null ? null : data.getData());
+            return;
+        }
         if (requestCode != CREATE_HISTORY_CSV || resultCode != RESULT_OK) return;
         if (data == null || data.getData() == null) {
             Toast.makeText(this,"CSVの保存先を確認できませんでした。",Toast.LENGTH_LONG).show();

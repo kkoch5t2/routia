@@ -9,10 +9,26 @@ import java.time.*;
 public class MvpInstrumentation extends UiSmokeInstrumentation {
     private int checks=0;
     private boolean csvExport;
+    private boolean habitBackup;
     private void check(boolean ok,String message){checks++;if(!ok)throw new AssertionError(message);}
     private boolean security,readme,capacity,reminder,master,paging,reviewHub,reviewFlow,prices,calendar,reports,ui,preview,ux,revision,tickets,appearance,weeklyWidget,recording,criteria,performance,rig,focusStore;
-    @Override public void onCreate(Bundle b){csvExport=b!=null&&"csv-export".equals(b.getString("suite"));focusStore=b!=null&&"focus-store".equals(b.getString("suite"));security=b!=null&&"security".equals(b.getString("suite"));readme=b!=null&&"readme".equals(b.getString("suite"));capacity=b!=null&&"habit-capacity".equals(b.getString("suite"));reminder=b!=null&&"reminders".equals(b.getString("suite"));master=b!=null&&"review-master".equals(b.getString("suite"));paging=b!=null&&"report-paging".equals(b.getString("suite"));reviewHub=b!=null&&"review-hub".equals(b.getString("suite"));reviewFlow=b!=null&&"review-flow".equals(b.getString("suite"));prices=b!=null&&"prices".equals(b.getString("suite"));calendar=b!=null&&"calendar".equals(b.getString("suite"));reports=b!=null&&"reports".equals(b.getString("suite"));rig=b!=null&&"rig".equals(b.getString("suite"));performance=b!=null&&"performance".equals(b.getString("suite"));criteria=b!=null&&"criteria".equals(b.getString("suite"));recording=b!=null&&"recording".equals(b.getString("suite"));weeklyWidget=b!=null&&"widget-week".equals(b.getString("suite"));revision=b!=null&&"revision".equals(b.getString("suite"));ux=b!=null&&"ux".equals(b.getString("suite"));ui=b!=null&&"ui".equals(b.getString("suite"));preview=b!=null&&"preview".equals(b.getString("suite"));appearance=b!=null&&"appearance".equals(b.getString("suite"));tickets=b!=null&&"tickets".equals(b.getString("suite"));super.onCreate(b);}
+    @Override public void onCreate(Bundle b){habitBackup=b!=null&&"habit-backup".equals(b.getString("suite"));csvExport=b!=null&&"csv-export".equals(b.getString("suite"));focusStore=b!=null&&"focus-store".equals(b.getString("suite"));security=b!=null&&"security".equals(b.getString("suite"));readme=b!=null&&"readme".equals(b.getString("suite"));capacity=b!=null&&"habit-capacity".equals(b.getString("suite"));reminder=b!=null&&"reminders".equals(b.getString("suite"));master=b!=null&&"review-master".equals(b.getString("suite"));paging=b!=null&&"report-paging".equals(b.getString("suite"));reviewHub=b!=null&&"review-hub".equals(b.getString("suite"));reviewFlow=b!=null&&"review-flow".equals(b.getString("suite"));prices=b!=null&&"prices".equals(b.getString("suite"));calendar=b!=null&&"calendar".equals(b.getString("suite"));reports=b!=null&&"reports".equals(b.getString("suite"));rig=b!=null&&"rig".equals(b.getString("suite"));performance=b!=null&&"performance".equals(b.getString("suite"));criteria=b!=null&&"criteria".equals(b.getString("suite"));recording=b!=null&&"recording".equals(b.getString("suite"));weeklyWidget=b!=null&&"widget-week".equals(b.getString("suite"));revision=b!=null&&"revision".equals(b.getString("suite"));ux=b!=null&&"ux".equals(b.getString("suite"));ui=b!=null&&"ui".equals(b.getString("suite"));preview=b!=null&&"preview".equals(b.getString("suite"));appearance=b!=null&&"appearance".equals(b.getString("suite"));tickets=b!=null&&"tickets".equals(b.getString("suite"));super.onCreate(b);}
     @Override public void onStart(){
+        if (habitBackup) {
+            Bundle out = new Bundle();
+            try {
+                if ((!Build.HARDWARE.contains("ranchu") && !Build.HARDWARE.contains("goldfish"))
+                        || !getTargetContext().getPackageName().endsWith(".reportqa"))
+                    throw new AssertionError("Dedicated QA emulator only");
+                int count = new HabitBackupTest().run(getTargetContext());
+                out.putString("stream", "PASS " + count + " habit backup assertions\n");
+                finish(Activity.RESULT_OK, out);
+            } catch (Throwable failure) {
+                out.putString("stream", "FAIL habit-backup: " + failure);
+                finish(Activity.RESULT_CANCELED, out);
+            }
+            return;
+        }
         if (csvExport) {
             Bundle out = new Bundle();
             try {
