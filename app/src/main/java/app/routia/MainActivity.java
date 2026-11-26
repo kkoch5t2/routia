@@ -94,7 +94,7 @@ public class MainActivity extends Activity {
         root.addView(nav);root.requestApplyInsets();
     }
     private void today(){
-        java.util.List<Store.Habit> habits=store.habits();int capacity=Rules.MAX_HABITS,done=0;for(Store.Habit h:habits)if(store.level(h.id(),displayedDay)>0)done++;
+        List<Store.Habit> habits=todayHabits();int capacity=Rules.MAX_HABITS,done=0;for(Store.Habit h:habits)if(store.level(h.id(),displayedDay)>0)done++;
         boolean all=!habits.isEmpty()&&done==habits.size();int hour=LocalTime.now().getHour();int minute=hour*60+LocalTime.now().getMinute();int[] notify=Reminders.times(this);int reminderStage=ReminderTimes.stageAt(minute,notify);int accent=all?GREEN:reminderStage>=2?0xffAD493D:reminderStage==1?0xffA66B29:GREEN;
         header("SMALL STEPS. REAL PROGRESS.",all?"今日の自分に、拍手。":reminderStage>=2?"今日の一歩、まだ間に合う。":"やることを、ひとつずつ。",all?"ミニ目標も、しっかり成功。\nここまでの積み重ねは、消えません。":"きっかけがなくても、始められる。\nまずは「何をやるか」だけ決めよう。");
         if(!habits.isEmpty()){
@@ -103,6 +103,10 @@ public class MainActivity extends Activity {
             sub(summary,all?"このあとのリマインダーはお休みです。":notify.length==0?"リマインダーはオフです。":reminderStage>=2?"今日は24:00で区切ります。ミニ目標からでも始めよう。":"今日のお知らせ  "+Reminders.timesLabel(this));
         }
         if(Focus.exists(this)){LinearLayout f=card(content);long seconds=(Focus.remaining(this)+999)/1000;boolean paused=Focus.paused(this);f.addView(text(paused?"⏸ タイマーを一時停止中":"⏱ 集中タイマーが進行中",19,INK,true));space(f,8);sub(f,"残り "+seconds/60+"分 "+seconds%60+"秒 · "+(paused?"休止中の時間は加算しません":"続きから戻れます"));space(f,12);f.addView(button(paused?"▶ 続きから再開":"⏱ タイマーへ戻る",true,()->startActivity(new Intent(this,FocusActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));space(f,8);f.addView(button("このタイマーを取り消す",false,()->Ui.show(Ui.sheet(this,"TIMER","タイマーを取り消す？","この回の残り時間を破棄します。完走済みの記録は残ります。","取り消す",()->{Focus.clear(this,true);render();}),this)));}
+        if (habits.size() > 1) {
+            content.addView(button("習慣を並び替える", false, this::editTodayHabitOrder));
+            space(content, 12);
+        }
         for(Store.Habit h:habits)habitCard(h);
         if(habits.size()<capacity){if(habits.isEmpty()){LinearLayout c=card(content);c.addView(new Mascot(this,Mascot.WELCOME),new LinearLayout.LayoutParams(-1,dp(100)));c.addView(text("こんにちは、ルティです。",21,INK,true));space(c,10);sub(c,"小さな一歩を、未来の蓄えに。\nまずはそのまま習慣をつくれます。内容はあとから変えても大丈夫。");space(c,18);c.addView(button("最初の習慣をつくる",true,()->editor(null,null)));space(c,9);c.addView(button("例からつくる · 英語",false,()->editor(null,"英語を聞く")));}else content.addView(button("＋ 習慣を追加  ·  "+habits.size()+" / "+capacity,false,()->editor(null,null)));}
         else sub(content,"登録済み "+habits.size()+"個 / 上限 "+capacity+"個");
@@ -115,6 +119,80 @@ public class MainActivity extends Activity {
             }
         }
     }
+    private static final String TODAY_HABIT_ORDER = "today_habit_order";
+
+    private List<Store.Habit> todayHabits() {
+        Map<String, Store.Habit> remaining = new LinkedHashMap<>();
+        for (Store.Habit habit : store.habits()) remaining.put(Long.toString(habit.id()), habit);
+
+        List<Store.Habit> ordered = new ArrayList<>();
+        String saved = getPreferences(MODE_PRIVATE).getString(TODAY_HABIT_ORDER, "");
+        for (String id : saved.split(",")) {
+            Store.Habit habit = remaining.remove(id);
+            if (habit != null) ordered.add(habit);
+        }
+        ordered.addAll(remaining.values());
+        return ordered;
+    }
+
+    private void editTodayHabitOrder() {
+        List<Store.Habit> draft = todayHabits();
+        if (draft.size() < 2) return;
+        LinearLayout form = column();
+        sub(form, "よく使う習慣を上に移動できます。");
+        space(form, 10);
+        List<TextView> names = new ArrayList<>();
+        List<TextView> upButtons = new ArrayList<>();
+        List<TextView> downButtons = new ArrayList<>();
+        Runnable refresh = () -> {
+            for (int index = 0; index < draft.size(); index++) {
+                String name = draft.get(index).goal();
+                names.get(index).setText(name);
+                upButtons.get(index).setContentDescription((index + 1) + "番目の「" + name + "」を上へ");
+                downButtons.get(index).setContentDescription((index + 1) + "番目の「" + name + "」を下へ");
+            }
+        };
+        for (int index = 0; index < draft.size(); index++) {
+            int position = index;
+            LinearLayout line = row();
+            TextView name = text("", 16, INK, true);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            names.add(name);
+            TextView up = button("↑", false, () -> {
+                Collections.swap(draft, position, position - 1);
+                refresh.run();
+            });
+            TextView down = button("↓", false, () -> {
+                Collections.swap(draft, position, position + 1);
+                refresh.run();
+            });
+            up.setEnabled(index > 0);
+            down.setEnabled(index < draft.size() - 1);
+            up.setAlpha(up.isEnabled() ? 1f : .4f);
+            down.setAlpha(down.isEnabled() ? 1f : .4f);
+            for (TextView arrow : new TextView[]{up, down}) {
+                arrow.setPadding(0, 0, 0, 0);
+                LinearLayout.LayoutParams slot = new LinearLayout.LayoutParams(dp(48), -2);
+                slot.leftMargin = dp(6);
+                line.addView(arrow, slot);
+            }
+            upButtons.add(up);
+            downButtons.add(down);
+            form.addView(line);
+            space(form, 8);
+        }
+        refresh.run();
+        Dialog[] dialog = {null};
+        dialog[0] = formDialog("", "習慣の並び替え", form, "順番を保存", () -> {
+            StringJoiner ids = new StringJoiner(",");
+            for (Store.Habit habit : draft) ids.add(Long.toString(habit.id()));
+            getPreferences(MODE_PRIVATE).edit().putString(TODAY_HABIT_ORDER, ids.toString()).apply();
+            dialog[0].dismiss();
+            render();
+        });
+        Ui.show(dialog[0], this);
+    }
+
     private void habitCard(Store.Habit h){
         Store.Metric metric=store.metric(h.id());Store.Entry entry=store.entry(h.id(),displayedDay);boolean check=metric.kind().equals("check"),timed=metric.kind().equals("time");
         LinearLayout c=card(content),top=row();top.addView(text(check?(entry.level()>0?Rules.grade(entry.level()):"今日のチャレンジ"):"習慣",13,GREEN,true),new LinearLayout.LayoutParams(0,-2,1));top.addView(button("管理",false,()->manageHabit(h)));c.addView(top);space(c,10);c.addView(text(h.goal(),24,INK,true));space(c,10);
