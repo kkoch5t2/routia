@@ -230,6 +230,12 @@ public final class Store extends SQLiteOpenHelper {
     }
     public void paid(long id) {ContentValues v=new ContentValues();v.put("paid",1);getWritableDatabase().update("pledges",v,"id=?",new String[]{""+id});}
 
+    boolean hasHabits() {
+        try (Cursor rows = getReadableDatabase().rawQuery("SELECT 1 FROM habits LIMIT 1", null)) {
+            return rows.moveToFirst();
+        }
+    }
+
     public List<Habit> habits() {
         List<Habit> all = new ArrayList<>();
         try(Cursor c = getReadableDatabase().rawQuery("SELECT * FROM habits ORDER BY id", null)) { while(c.moveToNext()) all.add(read(c)); }
