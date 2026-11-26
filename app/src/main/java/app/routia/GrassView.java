@@ -1,10 +1,19 @@
 package app.routia;
 import android.content.*;
 import android.graphics.*;
+import android.os.Bundle;
 import android.view.*;
+import android.view.accessibility.AccessibilityEvent;
+import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityNodeProvider;
+import android.widget.Button;
 import java.time.*;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.Locale;
 import java.util.ArrayList;
 /** GitHub-style weekly columns, with a fixed weekday rail supplied by the parent. */
 final class GrassView extends View {
@@ -15,7 +24,14 @@ final class GrassView extends View {
     final String[] monthLabels;final int[] monthColumns,monthRows;final int naturalWidth,weekCount;
     final int[] colors;final int surface;
     final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);final LocalDate start,end,sunday;final int[] shades;final double[] values;final boolean numeric;final String unit;
-    Consumer<LocalDate> onDayClick;int selected=-1;float downX,downY;
+    private static final DateTimeFormatter SPOKEN_DATE =
+        DateTimeFormatter.ofPattern("yyyy年M月d日 EEEE", Locale.JAPANESE);
+    private static final int NO_DAY = Integer.MIN_VALUE;
+    private final DayNodes dayNodes = new DayNodes();
+    Consumer<LocalDate> onDayClick;
+    Function<LocalDate, String> dayStatus;
+    int selected=-1;
+    float downX,downY;
     public GrassView(Context c){this(c,LocalDate.now(),LocalDate.now(),new int[]{0},new double[]{-1},false,"");}
     GrassView(Context c,LocalDate start,LocalDate end,int[] shades,double[] values,boolean numeric,String unit){super(c);colors=palette(c);surface=Ui.surface(c,Color.WHITE);this.start=start;this.end=end;this.shades=shades;this.values=values;this.numeric=numeric;this.unit=unit;sunday=start.minusDays(start.getDayOfWeek().getValue()%7);weekCount=(int)ChronoUnit.DAYS.between(sunday,end)/7+1;
         ArrayList<String> labels=new ArrayList<>();ArrayList<Integer> columns=new ArrayList<>(),rows=new ArrayList<>();p.setTextSize(d(11));p.setTypeface(Typeface.DEFAULT_BOLD);float[] nextLabel={0,0};float width=d(2+weekCount*STEP+4);
@@ -62,12 +78,199 @@ final class GrassView extends View {
             if(index==selected){p.setColor(Ui.ink(getContext(),Ui.GREEN));c.drawCircle(x+size/2,y+size/2,d(2),p);}
         }
     }
-    @Override public boolean onTouchEvent(MotionEvent e){
-        if(e.getAction()==MotionEvent.ACTION_DOWN){downX=e.getX();downY=e.getY();return true;}
-        if(e.getAction()==MotionEvent.ACTION_UP){if(Math.abs(e.getX()-downX)>ViewConfiguration.get(getContext()).getScaledTouchSlop()||Math.abs(e.getY()-downY)>ViewConfiguration.get(getContext()).getScaledTouchSlop())return true;if(layoutMode>0){int col=(int)(e.getX()/d(cell)),row=(int)((e.getY()-d(26))/d(cell));int offset=layoutMode==1?0:start.getDayOfWeek().getValue()%7,index=row*7+col-offset;if(e.getX()>=0&&e.getY()>=d(26)&&col>=0&&col<7&&index>=0&&index<shades.length){selected=index;invalidate();if(onDayClick!=null)onDayClick.accept(start.plusDays(index));}performClick();return true;}int col=(int)((e.getX()-d(2))/d(STEP)),row=(int)((e.getY()-d(HEADER))/d(STEP));if(e.getX()>=d(2)&&e.getY()>=d(HEADER)&&col<weekCount&&row>=0&&row<7){LocalDate day=sunday.plusDays(col*7L+row);int index=(int)ChronoUnit.DAYS.between(start,day);if(index>=0&&index<shades.length){selected=index;invalidate();if(onDayClick!=null)onDayClick.accept(day);}}performClick();return true;}
+    private boolean isDay(int index) {
+        return index >= 0 && index < shades.length;
+    }
+
+    private int dayAt(float x, float y) {
+        int left = layoutMode == 0 ? Ui.dp(getContext(), 2) : 0;
+        int top = Ui.dp(getContext(), layoutMode == 0 ? HEADER : 26);
+        if (x < left || y < top) return NO_DAY;
+        float size = (layoutMode == 0 ? STEP : cell) * getResources().getDisplayMetrics().density;
+        int col = (int) ((x - left) / size);
+        int row = (int) ((y - top) / size);
+        if (layoutMode > 0 && col < 7) {
+            int offset = layoutMode == 1 ? 0 : start.getDayOfWeek().getValue() % 7;
+            int index = row * 7 + col - offset;
+            return isDay(index) ? index : NO_DAY;
+        }
+        if (layoutMode == 0 && col < weekCount && row < 7) {
+            int index = (int) ChronoUnit.DAYS.between(start, sunday.plusDays(col * 7L + row));
+            return isDay(index) ? index : NO_DAY;
+        }
+        return NO_DAY;
+    }
+
+    private Rect dayBounds(int index) {
+        int col, row, size, left, top;
+        if (layoutMode == 0) {
+            int offset = (int) ChronoUnit.DAYS.between(sunday, start) + index;
+            col = offset / 7;
+            row = offset % 7;
+            size = STEP;
+            left = 2;
+            top = HEADER;
+        } else {
+            int offset = index + (layoutMode == 1 ? 0 : start.getDayOfWeek().getValue() % 7);
+            col = offset % 7;
+            row = offset / 7;
+            size = cell;
+            left = 0;
+            top = 26;
+        }
+        return new Rect(Ui.dp(getContext(), left + col * size), Ui.dp(getContext(), top + row * size),
+            Ui.dp(getContext(), left + (col + 1) * size), Ui.dp(getContext(), top + (row + 1) * size));
+    }
+
+    private void openDay(int index) {
+        selected = index;
+        invalidate();
+        dayNodes.send(index, AccessibilityEvent.TYPE_VIEW_CLICKED);
+        if (onDayClick != null) onDayClick.accept(start.plusDays(index));
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            downX = event.getX();
+            downY = event.getY();
+        } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+            int slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
+            if (Math.abs(event.getX() - downX) <= slop && Math.abs(event.getY() - downY) <= slop) {
+                int index = dayAt(event.getX(), event.getY());
+                if (isDay(index)) openDay(index);
+                performClick();
+            }
+        }
         return true;
     }
-    @Override public boolean performClick(){return super.performClick();}
+
+    @Override public boolean performClick() { return super.performClick(); }
+
+    @Override public AccessibilityNodeProvider getAccessibilityNodeProvider() {
+        return dayStatus == null ? super.getAccessibilityNodeProvider() : dayNodes;
+    }
+
+    @Override public boolean dispatchHoverEvent(MotionEvent event) {
+        AccessibilityManager manager = getContext().getSystemService(AccessibilityManager.class);
+        if (dayStatus != null && manager != null && manager.isTouchExplorationEnabled()) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_HOVER_ENTER:
+                case MotionEvent.ACTION_HOVER_MOVE:
+                    if (dayNodes.hover(dayAt(event.getX(), event.getY()))) return true;
+                    break;
+                case MotionEvent.ACTION_HOVER_EXIT:
+                    if (dayNodes.hover(NO_DAY)) return true;
+                    break;
+                default:
+                    break;
+            }
+        }
+        return super.dispatchHoverEvent(event);
+    }
+
+    private final class DayNodes extends AccessibilityNodeProvider {
+        private int focused = NO_DAY;
+        private int hovered = NO_DAY;
+
+        @Override public AccessibilityNodeInfo createAccessibilityNodeInfo(int index) {
+            if (index == HOST_VIEW_ID) {
+                AccessibilityNodeInfo host = AccessibilityNodeInfo.obtain(GrassView.this);
+                onInitializeAccessibilityNodeInfo(host);
+                host.setClickable(false);
+                host.setFocusable(false);
+                host.removeAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+                host.removeAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_FOCUS);
+                for (int day = 0; day < shades.length; day++) host.addChild(GrassView.this, day);
+                return host;
+            }
+            if (!isDay(index) || dayStatus == null) return null;
+            AccessibilityNodeInfo day = AccessibilityNodeInfo.obtain();
+            day.setSource(GrassView.this, index);
+            day.setParent(GrassView.this);
+            day.setClassName(Button.class.getName());
+            day.setPackageName(getContext().getPackageName());
+            day.setContentDescription(label(index));
+            day.setEnabled(true);
+            day.setClickable(true);
+            day.setFocusable(true);
+            day.setAccessibilityFocused(focused == index);
+            day.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK);
+            day.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN);
+            day.addAction(focused == index
+                ? AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
+                : AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS);
+            Rect bounds = dayBounds(index);
+            day.setBoundsInParent(bounds);
+            Rect visible = new Rect();
+            if (isShown() && getLocalVisibleRect(visible) && visible.intersect(bounds)) {
+                day.setVisibleToUser(true);
+                bounds = visible;
+            }
+            int[] location = new int[2];
+            getLocationOnScreen(location);
+            bounds.offset(location[0], location[1]);
+            day.setBoundsInScreen(bounds);
+            return day;
+        }
+
+        @Override public AccessibilityNodeInfo findFocus(int type) {
+            return type == AccessibilityNodeInfo.FOCUS_ACCESSIBILITY && isDay(focused)
+                ? createAccessibilityNodeInfo(focused) : null;
+        }
+
+        @Override public boolean performAction(int index, int action, Bundle arguments) {
+            if (index == HOST_VIEW_ID) return GrassView.this.performAccessibilityAction(action, arguments);
+            if (!isDay(index) || dayStatus == null) return false;
+            switch (action) {
+                case AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS:
+                    if (focused == index) return false;
+                    int previous = focused;
+                    focused = index;
+                    send(previous, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                    send(index, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED);
+                    return true;
+                case AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS:
+                    if (focused != index) return false;
+                    focused = NO_DAY;
+                    send(index, AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED);
+                    return true;
+                case AccessibilityNodeInfo.ACTION_CLICK:
+                    openDay(index);
+                    return true;
+                default:
+                    return action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.getId()
+                        && requestRectangleOnScreen(dayBounds(index));
+            }
+        }
+
+        private String label(int index) {
+            LocalDate day = start.plusDays(index);
+            return day.format(SPOKEN_DATE) + "、" + dayStatus.apply(day);
+        }
+
+        private void send(int index, int type) {
+            AccessibilityManager manager = getContext().getSystemService(AccessibilityManager.class);
+            if (!isDay(index) || dayStatus == null || getParent() == null || manager == null || !manager.isEnabled()) return;
+            AccessibilityEvent event = AccessibilityEvent.obtain(type);
+            event.setSource(GrassView.this, index);
+            event.setContentDescription(label(index));
+            event.setClassName(Button.class.getName());
+            event.setPackageName(getContext().getPackageName());
+            event.setEnabled(true);
+            getParent().requestSendAccessibilityEvent(GrassView.this, event);
+        }
+
+        private boolean hover(int index) {
+            int previous = hovered;
+            hovered = index;
+            if (previous != index) {
+                send(index, AccessibilityEvent.TYPE_VIEW_HOVER_ENTER);
+                send(previous, AccessibilityEvent.TYPE_VIEW_HOVER_EXIT);
+            }
+            return isDay(index) || isDay(previous);
+        }
+    }
+
     static final class WeekLabels extends View {
         final Paint p=new Paint(Paint.ANTI_ALIAS_FLAG);
         public WeekLabels(Context c){super(c);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
